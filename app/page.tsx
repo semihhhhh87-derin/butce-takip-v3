@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   activeInMonth,
   activeWeeklySummary,
+  cardStatementInterest,
   freshWeeklySummary,
   BudgetData,
   dateToIso,
@@ -1658,6 +1659,19 @@ function Update({
     yk_kullanilabilir: num(data.guncel_durum.yk_kullanilabilir),
     yk_limit: num(data.guncel_durum.yk_limit),
   });
+  const [ekstre, setEkstre] = useState({
+    hesap_kesim_tarihi: "",
+    son_odeme_tarihi: "",
+    sonraki_hesap_kesim_tarihi: "",
+    odeme_tarihi: "",
+    donem_borcu: 0,
+    asgari_tutar: 0,
+    odenen_tutar: 0,
+    kalan_donem_borcu: 0,
+    donem_faizi: 0,
+    yillik_kart_ucreti: 0,
+    ...data.guncel_durum.yk_hesap_ozeti,
+  });
   const [kartHedef, setKartHedef] = useState(num(data.haftalik_hedefler.kart));
   const [nakitHedef, setNakitHedef] = useState(num(data.haftalik_hedefler.nakit));
   const [maasForm, setMaasForm] = useState<any>(null);
@@ -1688,13 +1702,29 @@ function Update({
   }
   function syncKart() {
     const d = normalize(data);
+    const previous = d.guncel_durum.yk_hesap_ozeti;
+    if (
+      previous?.hesap_kesim_tarihi &&
+      previous.hesap_kesim_tarihi !== ekstre.hesap_kesim_tarihi &&
+      !(d.kart_hesap_ozeti_gecmisi || []).some(
+        (x: any) => x.hesap_kesim_tarihi === previous.hesap_kesim_tarihi,
+      )
+    ) d.kart_hesap_ozeti_gecmisi.push(structuredClone(previous));
+    const faiz = cardStatementInterest(ekstre, d.ayarlar);
     d.guncel_durum = {
       ...d.guncel_durum,
       yk_toplam_borc: kart.yk_toplam_borc,
       yk_kullanilabilir: kart.yk_kullanilabilir,
       yk_limit: kart.yk_limit,
+      yk_beklenen_ekstre: faiz.reportedRemaining,
+      yk_guncel_ekstre: faiz.reportedRemaining,
+      yk_hesap_ozeti: {
+        ...ekstre,
+        akdi_faiz_orani: faiz.contractualRate,
+        vergi_orani: faiz.taxRate,
+      },
     };
-    save(d, "YK kart durumu güncellendi");
+    save(d, "YK kart ve hesap özeti güncellendi");
   }
   function saveHedefler() {
     const d = normalize(data);
@@ -1722,6 +1752,7 @@ function Update({
     save(d, "Maaş takvimi satırı silindi");
   }
 
+  const ekstreFaiz = cardStatementInterest(ekstre, data.ayarlar);
   return (
     <div className="single updateGrid">
       <details className="panel updatePanel" open>
@@ -1772,8 +1803,38 @@ function Update({
           <Field l="Kullanılabilir limit" v={kart.yk_kullanilabilir} set={(v) => setKart({ ...kart, yk_kullanilabilir: v })} />
           <Field l="Kart limiti (toplam)" v={kart.yk_limit} set={(v) => setKart({ ...kart, yk_limit: v })} />
         </div>
+        <div className="statementEditor">
+          <h3>Son hesap özeti</h3>
+          <p className="helperText">
+            Her ay ekstrede yazan değerleri girin. Ödeme tarihi boşsa asgarinin son ödeme tarihinden bir gün önce ödendiği varsayılır.
+          </p>
+          <div className="formGrid">
+            <DateField l="Hesap kesim tarihi" v={ekstre.hesap_kesim_tarihi} set={(v) => setEkstre({ ...ekstre, hesap_kesim_tarihi: v })} />
+            <DateField l="Son ödeme tarihi" v={ekstre.son_odeme_tarihi} set={(v) => setEkstre({ ...ekstre, son_odeme_tarihi: v })} />
+            <DateField l="Sonraki hesap kesim tarihi" v={ekstre.sonraki_hesap_kesim_tarihi} set={(v) => setEkstre({ ...ekstre, sonraki_hesap_kesim_tarihi: v })} />
+            <DateField l="Ödemenin karta yansıdığı tarih" v={ekstre.odeme_tarihi} set={(v) => setEkstre({ ...ekstre, odeme_tarihi: v })} />
+            <Field l="Dönem borcu" v={ekstre.donem_borcu} set={(v) => setEkstre({ ...ekstre, donem_borcu: v })} />
+            <Field l="Asgari ödeme tutarı" v={ekstre.asgari_tutar} set={(v) => setEkstre({ ...ekstre, asgari_tutar: v })} />
+            <Field l="Gerçek ödenen tutar" v={ekstre.odenen_tutar} set={(v) => setEkstre({ ...ekstre, odenen_tutar: v })} />
+            <Field l="Bankada görünen kalan ekstre" v={ekstre.kalan_donem_borcu} set={(v) => setEkstre({ ...ekstre, kalan_donem_borcu: v })} />
+            <Field l="Ekstredeki dönem faizi" v={ekstre.donem_faizi} set={(v) => setEkstre({ ...ekstre, donem_faizi: v })} />
+            <Field l="Yıllık kart ücreti" v={ekstre.yillik_kart_ucreti} set={(v) => setEkstre({ ...ekstre, yillik_kart_ucreti: v })} />
+          </div>
+          {ekstreFaiz.valid && (
+            <div className="statementResult" role="status">
+              <div className={ekstreFaiz.minimumMet && ekstreFaiz.paymentOnTime ? "good" : "bad"}>
+                <b>{ekstreFaiz.minimumMet && ekstreFaiz.paymentOnTime ? "Asgari ödeme zamanında tamamlandı" : "Asgari ödeme eksik veya geç"}</b>
+              </div>
+              <span>Kalan dönem borcu <b>{trMoney(ekstreFaiz.reportedRemaining)}</b></span>
+              <span>Tahmini akdi faiz <b>{trMoney(ekstreFaiz.contractualInterest)}</b></span>
+              <span>KKDF + BSMV tahmini <b>{trMoney(ekstreFaiz.tax)}</b></span>
+              <strong>Tahmini toplam faiz {trMoney(ekstreFaiz.total)}</strong>
+              {ekstreFaiz.assumedPaymentDate && <small>Ödeme tarihi varsayımı: son ödeme tarihinden 1 gün önce</small>}
+            </div>
+          )}
+        </div>
         <button className="primary" style={{ marginTop: 12 }} onClick={syncKart}>
-          Kart durumunu güncelle
+          Kart ve hesap özetini güncelle
         </button>
         {notice && <span className="saveFeedback" role="status">✓ {notice}</span>}
         </div>
@@ -1863,6 +1924,14 @@ function Field({ l, v, set }: { l: string; v: any; set: (n: number) => void }) {
         onBlur={handleBlur}
         onFocus={(e) => e.target.select()}
       />
+    </label>
+  );
+}
+function DateField({ l, v, set }: { l: string; v: any; set: (s: string) => void }) {
+  return (
+    <label>
+      {l}
+      <input type="date" value={String(v || "").slice(0, 10)} onChange={(e) => set(e.target.value)} />
     </label>
   );
 }

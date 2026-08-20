@@ -779,6 +779,21 @@ aside {
 .updatePanel summary span:nth-child(2) { display: grid; gap: 2px; }
 .updatePanel summary small { color: var(--muted); font-weight: 500; }
 .updatePanelBody { border-top: 1px solid var(--line); padding: 18px 20px 20px; }
+.helperText { font-size: 0.82rem; color: var(--muted); margin: 0 0 12px; }
+.statementEditor { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
+.statementEditor h3 { margin: 0 0 6px; font-size: 1rem; }
+.statementResult {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8fafc;
+  display: grid;
+  gap: 7px;
+  font-size: 0.86rem;
+}
+.statementResult span { display: flex; justify-content: space-between; gap: 16px; }
+.statementResult > strong { padding-top: 8px; border-top: 1px solid var(--line); }
 .saveFeedback {
   display: inline-block;
   margin: 12px 0 0 10px;

@@ -14,6 +14,7 @@ export type BudgetData = AnyMap & {
   haftalik_kapanislar: AnyMap;
   gerceklesen_odemeler: AnyMap;
   aylik_ankorlar: AnyMap;
+  kart_hesap_ozeti_gecmisi: AnyMap[];
 };
 export const START_YEAR = 2026,
   START_MONTH = 8;
@@ -59,6 +60,7 @@ export function normalize(raw: any): BudgetData {
   obj("haftalik_kapanislar");
   obj("gerceklesen_odemeler");
   obj("aylik_ankorlar");
+  arr("kart_hesap_ozeti_gecmisi");
   arr("kart_iadesi_gecmisi");
   arr("kart_kademeli_odemeler");
   const closeLegacyRefund = (state: AnyMap) => {
@@ -500,6 +502,84 @@ function cardDebtLimit(d: BudgetData) {
 function installment(d: BudgetData, y: number, m: number) {
   return Math.max(0, n(d.guncel_durum.yk_taksit_takvimi?.[monthKey(y, m)]));
 }
+
+export function cardRateTier(periodDebt: any) {
+  const debt = Math.max(0, n(periodDebt));
+  if (debt < 30_000) return { contractual: 0.0325 };
+  if (debt <= 180_000) return { contractual: 0.0375 };
+  return { contractual: 0.0425 };
+}
+
+const dateDiff = (from: Date, to: Date) =>
+  Math.max(0, Math.round((+to - +from) / 86400000));
+
+export function cardStatementInterest(statement: AnyMap, settings: AnyMap = {}) {
+  const periodDebt = Math.max(0, n(statement.donem_borcu)),
+    minimum = Math.max(0, n(statement.asgari_tutar)),
+    paid = Math.max(0, n(statement.odenen_tutar)),
+    excluded = Math.max(
+      0,
+      n(statement.donem_faizi) + n(statement.yillik_kart_ucreti),
+    ),
+    eligibleOpening = Math.max(0, periodDebt - excluded),
+    eligibleAfterPayment = Math.max(0, eligibleOpening - paid),
+    reportedRemaining = Math.max(
+      0,
+      n(statement.kalan_donem_borcu, Math.max(0, periodDebt - paid)),
+    ),
+    tier = cardRateTier(periodDebt),
+    contractualRate = Math.max(
+      0,
+      n(statement.akdi_faiz_orani, tier.contractual),
+    ),
+    taxRate = Math.max(0, n(statement.vergi_orani, n(settings.kart_faiz_vergi_orani, 0.3))),
+    cut = isoDate(statement.hesap_kesim_tarihi),
+    due = isoDate(statement.son_odeme_tarihi),
+    nextCut = isoDate(statement.sonraki_hesap_kesim_tarihi),
+    paymentDate = isoDate(statement.odeme_tarihi) || (due ? addDays(due, -1) : null);
+  if (!cut || !due || !nextCut || +nextCut <= +cut)
+    return {
+      valid: false,
+      contractualInterest: 0,
+      lateInterest: 0,
+      tax: 0,
+      total: 0,
+      reportedRemaining,
+      minimumMet: paid >= minimum,
+      paymentOnTime: false,
+      contractualRate,
+      taxRate,
+    };
+
+  const payAt = new Date(Math.min(+nextCut, Math.max(+cut, +paymentDate!))),
+    dueAt = new Date(Math.min(+nextCut, Math.max(+cut, +due))),
+    beforePaymentDays = dateDiff(cut, payAt),
+    paymentOnTime = +payAt <= +dueAt,
+    minimumMet = paid >= minimum,
+    dailyContractual = contractualRate / 30,
+    afterPaymentDays = dateDiff(payAt, nextCut),
+    contractualInterest =
+      eligibleOpening * dailyContractual * beforePaymentDays +
+      eligibleAfterPayment * dailyContractual * afterPaymentDays,
+    lateInterest = 0,
+    interestBeforeTax = contractualInterest,
+    tax = interestBeforeTax * taxRate;
+  return {
+    valid: true,
+    contractualInterest,
+    lateInterest,
+    tax,
+    total: interestBeforeTax + tax,
+    reportedRemaining,
+    eligibleOpening,
+    eligibleAfterPayment,
+    minimumMet,
+    paymentOnTime,
+    contractualRate,
+    taxRate,
+    assumedPaymentDate: !statement.odeme_tarihi,
+  };
+}
 function cardMonth(
   d: BudgetData,
   y: number,
@@ -519,9 +599,11 @@ function cardMonth(
       if (!opt.realizedPaymentInLive) return sum + planned;
       return sum + Math.max(0, planned - partialCardPaymentTotal(d, y, m, info.p.id));
     }, 0);
-  const rate =
-      n(d.ayarlar.kart_akdi_faiz_orani, 0.0375) *
-      (1 + n(d.ayarlar.kart_faiz_vergi_orani, 0.3)),
+  const tier = cardRateTier(opt.currentStatement ?? opening),
+    baseRate = d.ayarlar.kart_akdi_faiz_orani_manuel == null
+      ? tier.contractual
+      : n(d.ayarlar.kart_akdi_faiz_orani_manuel, tier.contractual),
+    rate = baseRate * (1 + n(d.ayarlar.kart_faiz_vergi_orani, 0.3)),
     planned =
       opt.newSpendAmount == null
         ? monthlyCardSpend(d, y, m) * n(opt.newSpendRatio, 1)
@@ -537,7 +619,9 @@ function cardMonth(
       opt.currentStatement == null
         ? carry
         : Math.max(0, n(opt.currentStatement) - paid),
-    interest = basis * rate,
+    interest = opt.interestOverride == null
+      ? basis * rate
+      : Math.max(0, n(opt.interestOverride)),
     after = carry + interest,
     available = limit > 0 ? Math.max(0, limit - after) : Infinity,
     newSpend = Math.min(planned, available),
@@ -766,11 +850,17 @@ function currentMonth(
       !d.odendi_kayitlari[key(y, m, p.id)]
     )
       bills += paymentAmount(d, p, y, m);
-  const card = cardMonth(d, y, m, live.yk_toplam_borc, {
+  const statement = s.yk_hesap_ozeti || {},
+    statementMonth = String(statement.hesap_kesim_tarihi || "").slice(0, 7),
+    statementInterest = statementMonth === monthKey(y, m)
+      ? cardStatementInterest(statement, d.ayarlar)
+      : null,
+    card = cardMonth(d, y, m, live.yk_toplam_borc, {
     currentStatement: Math.max(0, n(s.yk_beklenen_ekstre) - live.kart_odeme),
     newSpendAmount: cardLife + bills,
     realizedPaymentInLive: true,
     cardLimit: cardDebtLimit(d),
+    interestOverride: statementInterest?.valid ? statementInterest.total : null,
   });
   const remainingStatement = Math.max(
       0,
@@ -844,6 +934,7 @@ function currentMonth(
     canli_durum: live,
     kalan_kart_yasam: cardLife,
     kalan_kart_faturalari: bills,
+    kart_faiz_detayi: statementInterest,
     karttan_kmhye_aktarılan: card.kart_limit_asimi,
     ek_kart_odeme: 0,
     ...card,
