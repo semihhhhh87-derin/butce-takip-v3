@@ -516,7 +516,9 @@ const dateDiff = (from: Date, to: Date) =>
 export function cardStatementInterest(statement: AnyMap, settings: AnyMap = {}) {
   const periodDebt = Math.max(0, n(statement.donem_borcu)),
     minimum = Math.max(0, n(statement.asgari_tutar)),
-    paid = Math.max(0, n(statement.odenen_tutar)),
+    paid = statement.asgari_otomatik_odeme === false
+      ? Math.max(0, n(statement.odenen_tutar))
+      : minimum,
     excluded = Math.max(
       0,
       n(statement.donem_faizi) + n(statement.yillik_kart_ucreti),

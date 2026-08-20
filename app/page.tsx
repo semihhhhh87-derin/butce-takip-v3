@@ -1720,6 +1720,8 @@ function Update({
       yk_guncel_ekstre: faiz.reportedRemaining,
       yk_hesap_ozeti: {
         ...ekstre,
+        odenen_tutar: ekstre.asgari_tutar,
+        asgari_otomatik_odeme: true,
         akdi_faiz_orani: faiz.contractualRate,
         vergi_orani: faiz.taxRate,
       },
@@ -1815,7 +1817,6 @@ function Update({
             <DateField l="Ödemenin karta yansıdığı tarih" v={ekstre.odeme_tarihi} set={(v) => setEkstre({ ...ekstre, odeme_tarihi: v })} />
             <Field l="Dönem borcu" v={ekstre.donem_borcu} set={(v) => setEkstre({ ...ekstre, donem_borcu: v })} />
             <Field l="Asgari ödeme tutarı" v={ekstre.asgari_tutar} set={(v) => setEkstre({ ...ekstre, asgari_tutar: v })} />
-            <Field l="Gerçek ödenen tutar" v={ekstre.odenen_tutar} set={(v) => setEkstre({ ...ekstre, odenen_tutar: v })} />
             <Field l="Bankada görünen kalan ekstre" v={ekstre.kalan_donem_borcu} set={(v) => setEkstre({ ...ekstre, kalan_donem_borcu: v })} />
             <Field l="Ekstredeki dönem faizi" v={ekstre.donem_faizi} set={(v) => setEkstre({ ...ekstre, donem_faizi: v })} />
             <Field l="Yıllık kart ücreti" v={ekstre.yillik_kart_ucreti} set={(v) => setEkstre({ ...ekstre, yillik_kart_ucreti: v })} />
@@ -1825,6 +1826,7 @@ function Update({
               <div className={ekstreFaiz.minimumMet && ekstreFaiz.paymentOnTime ? "good" : "bad"}>
                 <b>{ekstreFaiz.minimumMet && ekstreFaiz.paymentOnTime ? "Asgari ödeme zamanında tamamlandı" : "Asgari ödeme eksik veya geç"}</b>
               </div>
+              <span>Ödenen tutar (otomatik asgari) <b>{trMoney(ekstre.asgari_tutar)}</b></span>
               <span>Kalan dönem borcu <b>{trMoney(ekstreFaiz.reportedRemaining)}</b></span>
               <span>Tahmini akdi faiz <b>{trMoney(ekstreFaiz.contractualInterest)}</b></span>
               <span>KKDF + BSMV tahmini <b>{trMoney(ekstreFaiz.tax)}</b></span>
