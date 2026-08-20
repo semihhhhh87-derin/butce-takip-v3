@@ -1,0 +1,17 @@
+node_modules/
+.next/
+dist/
+dist-vercel/
+.vercel/
+.env
+.env.*
+!.env.example
+*.local
+
+# Local diagnostic scripts and deployment metadata may contain credentials.
+debug-kredi.mjs
+debug-supabase.mjs
+test-cleanup-safety.mjs
+test-full-analysis.mjs
+test-projection.mjs
+proj_info.json
