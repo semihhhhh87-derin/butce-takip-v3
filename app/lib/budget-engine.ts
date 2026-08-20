@@ -193,14 +193,20 @@ export function cardIncludedPayments(
   y: number,
   m: number,
   onlyPending = false,
+  notBefore?: Date,
+  notAfter?: Date,
 ) {
   return d.odemeler
     .filter(
-      (p) =>
-        activeInMonth(p, y, m) &&
-        p.odeme_kaynagi === "kredi_karti" &&
-        p.kart_tavanina_dahil &&
-        (!onlyPending || !d.odendi_kayitlari[key(y, m, p.id)]),
+      (p) => {
+        const paymentDate = effectiveDay(y, m, n(p.gun ?? p.odeme_gunu, 1));
+        return activeInMonth(p, y, m) &&
+          p.odeme_kaynagi === "kredi_karti" &&
+          p.kart_tavanina_dahil &&
+          (!onlyPending || !d.odendi_kayitlari[key(y, m, p.id)]) &&
+          (!notBefore || +paymentDate >= +notBefore) &&
+          (!notAfter || +paymentDate <= +notAfter);
+      },
     )
     .reduce((a, p) => a + paymentAmount(d, p, y, m), 0);
 }
@@ -222,9 +228,7 @@ export function weeklyGoal(d: BudgetData, start: Date, end: Date) {
       base = n(d.haftalik_hedefler.kart, 6300);
     for (let i = 0; i < count; i++) {
       const day = addDays(effective, i),
-        [y, m] = dateParts(day),
-        fixed = cardIncludedPayments(d, y, m);
-      let other = Math.max(0, base - fixed / Math.max(factor, 0.01));
+        [y, m] = dateParts(day);
       // Banka fotoğrafı (anchor) bu ayla örtüşüyorsa:
       // Aylık kreş tutarını fotoğraf tarihinden itibaren kalan TAM hafta sayısına böl.
       // Örnek: 17 Ağustos fotoğrafı → 15 gün kaldı → round(15/7)=2 hafta → 8.736/2=4.368 TL
@@ -235,6 +239,8 @@ export function weeklyGoal(d: BudgetData, start: Date, end: Date) {
           : plan && cmp(dateParts(plan), [y, m]) === 0
           ? plan
           : null;
+      const fixed = cardIncludedPayments(d, y, m, false, monthRef || undefined);
+      let other = Math.max(0, base - fixed / Math.max(factor, 0.01));
       if (monthRef) {
         const remainingDays = Math.max(
           1,
@@ -365,18 +371,7 @@ export function monthlySpendingSummary(d: BudgetData, target: Date) {
   }
   const days = Math.max(0, Math.round((+monthEnd - +effective) / 86400000) + 1),
     ratio = days / daysInMonth(y, m),
-    fixedCard = d.odemeler
-      .filter((p) => {
-        if (
-          !activeInMonth(p, y, m) ||
-          p.odeme_kaynagi !== "kredi_karti" ||
-          !p.kart_tavanina_dahil
-        )
-          return false;
-        const paymentDate = effectiveDay(y, m, n(p.gun, 1));
-        return +paymentDate >= +effective && +paymentDate <= +monthEnd;
-      })
-      .reduce((sum, p) => sum + paymentAmount(d, p, y, m), 0),
+    fixedCard = cardIncludedPayments(d, y, m, false, effective, monthEnd),
     goal = {
       kart: Math.max(0, base.kart * ratio - fixedCard),
       nakit: base.nakit * ratio,

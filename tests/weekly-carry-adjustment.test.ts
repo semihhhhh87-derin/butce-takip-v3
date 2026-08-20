@@ -1,6 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalize, weeklyCarryAdjustment } from "../app/lib/budget-engine";
+import { normalize, weeklyCarryAdjustment, weeklyGoal } from "../app/lib/budget-engine";
+
+test("haftalık hedef bütçe miladından önceki sabit kart ödemesini düşmez", () => {
+  const data = normalize({
+    butce_plani: { butce_baslangic_tarihi: "2026-08-17" },
+    haftalik_hedefler: { kart: 7_200, nakit: 4_000 },
+    odemeler: [{
+      id: "erken-kart",
+      aktif: true,
+      gun: 10,
+      tutar: 3_817,
+      odeme_kaynagi: "kredi_karti",
+      kart_tavanina_dahil: true,
+    }],
+  });
+  const goal = weeklyGoal(
+    data,
+    new Date("2026-08-17T00:00:00Z"),
+    new Date("2026-08-23T00:00:00Z"),
+  );
+  assert.equal(goal.goal.kart, 7_200);
+});
 
 test("haftalık taşıma bütçe miladından önceki kapanışları yok sayar", () => {
   const data = normalize({
