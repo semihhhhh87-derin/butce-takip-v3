@@ -709,12 +709,12 @@ function Dashboard({ session }: { session: Session }) {
         <div className="heroStats">
           <article className="heroStatPair">
             <div>
-              <small>Nakit birikim</small>
-              <strong className={savings >= 0 ? "good" : "bad"}>{savings >= 0 ? "+" : ""}{trMoney(savings)}</strong>
+              <small>{savings >= 0 ? "Nakit hedefinden kalan" : "Nakit hedefi aşımı"}</small>
+              <strong className={savings >= 0 ? "good" : "bad"}>{trMoney(Math.abs(savings))}</strong>
             </div>
             <div>
-              <small>Kredi kartı birikim</small>
-              <strong className={cardSavings >= 0 ? "good" : "bad"}>{cardSavings >= 0 ? "+" : ""}{trMoney(cardSavings)}</strong>
+              <small>{cardSavings >= 0 ? "Kart hedefinden kalan" : "Kart hedefi aşımı"}</small>
+              <strong className={cardSavings >= 0 ? "good" : "bad"}>{trMoney(Math.abs(cardSavings))}</strong>
             </div>
           </article>
           <article>
@@ -1637,7 +1637,7 @@ function Weekly({
           <span>Kart <b>{trMoney(week.spent.kart)}</b> / {trMoney(freshWeek.goal.kart)}</span>
           <span>Nakit <b>{trMoney(week.spent.nakit)}</b> / {trMoney(freshWeek.goal.nakit)}</span>
           <span className={savings >= 0 ? "good" : "bad"}>
-            Nakit birikim {savings >= 0 ? "+" : ""}<b>{trMoney(savings)}</b>
+            {savings >= 0 ? "Nakit hedefinden kalan" : "Nakit hedefi aşımı"} <b>{trMoney(Math.abs(savings))}</b>
           </span>
         </div>
         <div className="recordList">
