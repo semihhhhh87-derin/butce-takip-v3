@@ -248,13 +248,13 @@ function Monthly({ month }: { month: any }) {
         <span>{r >= 0 ? "Yaşam harcaması hedefi korunuyor" : "Yaşam harcaması hedefi aşıldı"}</span>
         <b>{r >= 0 ? `${trMoney(r)} kalan` : `${trMoney(Math.abs(r))} aşım`}</b>
       </div>
-      <div className="monthlyBreakdown">
-        {month.fixedCard > 0 && (
+      {month.fixedCard > 0 && (
+        <div className="monthlyBreakdown">
           <span>
             Bu dönemde kart hedefinden ayrılan sabit ödeme <b>{trMoney(month.fixedCard)}</b>
           </span>
-        )}
-      </div>
+        </div>
+      )}
       <p className="monthlyHelp">
         Bu tutar hesap bakiyesi değildir; yalnız yaşam harcaması hedefinden
         kalan payı gösterir. Krediler, kart borcu ödemesi ve kart hedefinden
