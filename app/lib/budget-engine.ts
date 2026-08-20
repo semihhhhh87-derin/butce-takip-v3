@@ -919,7 +919,13 @@ export function exitDates(d: BudgetData, calcDate = todayUtc()) {
 export const trMoney = (v: any) => {
   const num = n(v);
   if (!Number.isFinite(num)) return "— TL";
-  return `${num.toLocaleString("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} TL`;
+  return new Intl.NumberFormat("tr-TR", {
+    style: "currency",
+    currency: "TRY",
+    currencyDisplay: "code",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num).replace("TRY", "TL");
 };
 export const trMonth = (x: any) =>
   x
