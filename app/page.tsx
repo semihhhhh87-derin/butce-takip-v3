@@ -847,7 +847,7 @@ function Dashboard({ session }: { session: Session }) {
       )}
       {tab === "ozet" && (
         <>
-          <WeekBox week={week} carry={{ kart: 0, nakit: 0, total: 0, source: "net-defter" }} data={data} now={now} save={save} />
+          <WeekBox week={week} carry={carry} data={data} now={now} save={save} />
           <div className="layout">
           <Payments
             data={data}
@@ -1433,7 +1433,10 @@ function WeekBox({
   useEffect(() => { amountRef.current?.focus(); }, []);
 
   const g = adjustedGoals(week, carry),
-    r = g.kart + g.nakit - week.spent.kart - week.spent.nakit;
+    r = g.kart + g.nakit - week.spent.kart - week.spent.nakit,
+    baseCardGoal = num(data.haftalik_hedefler.kart),
+    fixedCardReserved = Math.max(0, baseCardGoal - week.goal.kart),
+    cardCarryReduction = Math.max(0, week.goal.kart - g.kart);
 
   const wk = dateToIso(week.start),
     advanced = +week.start > +now;
@@ -1515,6 +1518,14 @@ function WeekBox({
       </div>
       <Meter l="Kredi kartı" v={week.spent.kart} max={g.kart} color="purple" />
       <Meter l="Nakit / KMH" v={week.spent.nakit} max={g.nakit} color="green" />
+      {(fixedCardReserved > 0.01 || cardCarryReduction > 0.01) && (
+        <p className="goalExplanation">
+          Ana kart hedefi {trMoney(baseCardGoal)}
+          {fixedCardReserved > 0.01 && <> · sabit kart ödemelerine ayrılan {trMoney(fixedCardReserved)}</>}
+          {cardCarryReduction > 0.01 && <> · geçmiş haftalardan düzeltme {trMoney(cardCarryReduction)}</>}
+          {" · "}bu hafta kullanılabilir {trMoney(g.kart)}
+        </p>
+      )}
       <div className={r >= 0 ? "weekTotal good" : "weekTotal bad"}>
         <span>
           {r >= 0 ? "Kullanılabilir bütçe" : "Kullanılabilir bütçe aşıldı"}
@@ -1541,7 +1552,8 @@ function Weekly({
     [editDraft, setEditDraft] = useState<{ tutar: string; aciklama: string }>({ tutar: "", aciklama: "" });
   const goals = adjustedGoals(week, carry),
     baseCardGoal = num(data.haftalik_hedefler.kart),
-    cardReserved = Math.max(0, baseCardGoal - goals.kart),
+    fixedCardReserved = Math.max(0, baseCardGoal - week.goal.kart),
+    cardCarryReduction = Math.max(0, week.goal.kart - goals.kart),
     groupedRecords = Object.entries(
       week.records.reduce((groups: Record<string, any[]>, record: any) => {
         (groups[record.tarih] ||= []).push(record);
@@ -1589,9 +1601,12 @@ function Weekly({
             {savings >= 0 ? "Birikimli nakit hedefi farkı" : "Birikimli nakit hedefi aşımı"} <b>{trMoney(Math.abs(savings))}</b>
           </span>
         </div>
-        {cardReserved > 0.01 && (
+        {(fixedCardReserved > 0.01 || cardCarryReduction > 0.01) && (
           <p className="goalExplanation">
-            Ana kart hedefi {trMoney(baseCardGoal)} · sabit kart ödemelerine ayrılan {trMoney(cardReserved)} · bu hafta kullanılabilir {trMoney(goals.kart)}
+            Ana kart hedefi {trMoney(baseCardGoal)}
+            {fixedCardReserved > 0.01 && <> · sabit kart ödemelerine ayrılan {trMoney(fixedCardReserved)}</>}
+            {cardCarryReduction > 0.01 && <> · geçmiş haftalardan düzeltme {trMoney(cardCarryReduction)}</>}
+            {" · "}bu hafta kullanılabilir {trMoney(goals.kart)}
           </p>
         )}
         <div className="recordList">
