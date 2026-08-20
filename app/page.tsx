@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   activeInMonth,
   activeWeeklySummary,
+  cardReductionAdvice,
   cardStatementInterest,
   freshWeeklySummary,
   BudgetData,
@@ -594,6 +595,7 @@ function Dashboard({ session }: { session: Session }) {
     plan = exitDates(data, now),
     current =
       plan.rows.find((x: any) => x.yil === y && x.ay === m) || plan.rows.at(-1),
+    cardAdvice = cardReductionAdvice(current, data.guncel_durum.yk_hesap_ozeti),
     week = activeWeeklySummary(data, now),
     // Özet ekranı: Pazar ise yarını baz al, harcamalar sıfır, kalan günlere göre hedef
     weekDisplayDate = now.getUTCDay() === 0 ? new Date(+now + 86400000) : now,
@@ -846,6 +848,22 @@ function Dashboard({ session }: { session: Session }) {
                 l="Kullanılabilir kart limiti"
                 v={trMoney(live.yk_kullanilabilir)}
               />
+            </section>
+            <section className="panel cardReductionCard">
+              <h2>Kart bakiyesini azaltma eşiği</h2>
+              <small>Bugünden dönem sonuna kadar temkinli hesap</small>
+              <strong>{trMoney(cardAdvice.paymentNow)} ek ödeme</strong>
+              <div className="cardReductionBreakdown">
+                <span>Beklenen yeni kart harcaması <b>{trMoney(cardAdvice.projectedNewCharges)}</b></span>
+                <span>Tahmini faiz ve vergiler <b>{trMoney(cardAdvice.projectedInterest)}</b></span>
+                <span>Asgari üzerinde toplam ödeme <b>{trMoney(cardAdvice.aboveMinimum)}</b></span>
+              </div>
+              <p>
+                Bu tutar ödenirse, diğer tahminler gerçekleştiğinde kart bakiyesi dönem sonunda en az 0,01 TL azalır.
+              </p>
+              <div className="kmhTransferWarning">
+                Ödemenin tamamı KMH&apos;den karşılanır: KMH borcu {trMoney(cardAdvice.kmhIncrease)} artar. Ödeme anında toplam borç azalmaz.
+              </div>
             </section>
           </aside>
         </div>

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cardRateTier, cardStatementInterest } from "../app/lib/budget-engine";
+import { cardRateTier, cardReductionAdvice, cardStatementInterest } from "../app/lib/budget-engine";
 
 test("TCMB kart faiz kademesi dönem borcuna göre seçilir", () => {
   assert.deepEqual(cardRateTier(29_999.99), { contractual: 0.0325 });
@@ -64,4 +64,16 @@ test("yalnız dört ana alanla tarihler ve kalan borç otomatik tamamlanır", ()
   assert.equal(result.assumedDueDate, true);
   assert.equal(result.assumedNextCutDate, true);
   assert.equal(result.assumedPaymentDate, true);
+});
+
+test("kart azaltma eşiği yeni harcama ve faizin bir kuruş üzeridir", () => {
+  const result = cardReductionAdvice(
+    { kart_yeni_harcama: 12_000, kart_faiz: 2_500 },
+    { asgari_tutar: 30_000, odenen_tutar: 35_000 },
+  );
+  assert.equal(result.paymentNow, 14_500.01);
+  assert.equal(result.totalCardPayment, 49_500.01);
+  assert.equal(result.aboveMinimum, 19_500.01);
+  assert.equal(result.kmhIncrease, 14_500.01);
+  assert.equal(result.combinedDebtChangeAtPayment, 0);
 });

@@ -585,6 +585,30 @@ export function cardStatementInterest(statement: AnyMap, settings: AnyMap = {}) 
     nextCutDate: dateIso(nextCut),
   };
 }
+
+export function cardReductionAdvice(month: AnyMap, statement: AnyMap = {}) {
+  const money = (value: number) => Math.round(value * 100) / 100,
+    minimum = money(Math.max(0, n(statement.asgari_tutar))),
+    paid = money(Math.max(minimum, n(statement.odenen_tutar))),
+    projectedNewCharges = money(Math.max(0, n(month?.kart_yeni_harcama))),
+    projectedInterest = money(Math.max(0, n(month?.kart_faiz))),
+    futureCost = money(projectedNewCharges + projectedInterest),
+    paymentNow = futureCost > 0 ? money(futureCost + 0.01) : 0,
+    totalCardPayment = money(paid + paymentNow);
+  return {
+    minimum,
+    paid,
+    projectedNewCharges,
+    projectedInterest,
+    futureCost,
+    paymentNow,
+    totalCardPayment,
+    aboveMinimum: money(Math.max(0, totalCardPayment - minimum)),
+    expectedCardReduction: paymentNow > 0 ? 0.01 : 0,
+    kmhIncrease: paymentNow,
+    combinedDebtChangeAtPayment: 0,
+  };
+}
 function cardMonth(
   d: BudgetData,
   y: number,
