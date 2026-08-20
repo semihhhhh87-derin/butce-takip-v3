@@ -364,7 +364,18 @@ export function monthlySpendingSummary(d: BudgetData, target: Date) {
   }
   const days = Math.max(0, Math.round((+monthEnd - +effective) / 86400000) + 1),
     ratio = days / daysInMonth(y, m),
-    fixedCard = cardIncludedPayments(d, y, m),
+    fixedCard = d.odemeler
+      .filter((p) => {
+        if (
+          !activeInMonth(p, y, m) ||
+          p.odeme_kaynagi !== "kredi_karti" ||
+          !p.kart_tavanina_dahil
+        )
+          return false;
+        const paymentDate = effectiveDay(y, m, n(p.gun, 1));
+        return +paymentDate >= +effective && +paymentDate <= +monthEnd;
+      })
+      .reduce((sum, p) => sum + paymentAmount(d, p, y, m), 0),
     goal = {
       kart: Math.max(0, base.kart * ratio - fixedCard),
       nakit: base.nakit * ratio,

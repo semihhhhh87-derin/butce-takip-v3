@@ -218,6 +218,13 @@ function mergeChanged(base: any, next: any, latest: any): any {
 function Monthly({ month }: { month: any }) {
   const r = month.totalRemaining,
     end = new Date(Date.UTC(month.y, month.m, 0)),
+    periodFormatter = new Intl.DateTimeFormat("tr-TR", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    }),
+    startLabel = periodFormatter.format(month.effective),
     endLabel = new Intl.DateTimeFormat("tr-TR", {
       day: "numeric",
       month: "long",
@@ -228,9 +235,9 @@ function Monthly({ month }: { month: any }) {
     <section className="panel single monthlyPage">
       <div className="panelTitle">
         <div>
-          <h2>Aylık yaşam bütçesi</h2>
+          <h2>Aylık harcama hedefi</h2>
           <p>
-            {dateToIso(month.effective)} – {endLabel} · {month.days} günlük
+            {startLabel} – {endLabel} · {month.days} günlük
             hedef
           </p>
         </div>
@@ -238,22 +245,20 @@ function Monthly({ month }: { month: any }) {
       <Meter l="Kart" v={month.spent.kart} max={month.goal.kart} />
       <Meter l="Nakit / KMH" v={month.spent.nakit} max={month.goal.nakit} />
       <div className={r >= 0 ? "weekTotal good" : "weekTotal bad"}>
-        <span>{r >= 0 ? "Aylık hedef korunuyor" : "Aylık hedef aşıldı"}</span>
-        <b>{trMoney(r)} kalan</b>
+        <span>{r >= 0 ? "Yaşam harcaması hedefi korunuyor" : "Yaşam harcaması hedefi aşıldı"}</span>
+        <b>{r >= 0 ? `${trMoney(r)} kalan` : `${trMoney(Math.abs(r))} aşım`}</b>
       </div>
       <div className="monthlyBreakdown">
-        <span>
-          Toplam kullanılan <b>{trMoney(month.totalSpent)}</b>
-        </span>
         {month.fixedCard > 0 && (
           <span>
-            Kart hedefinden ayrılan taksit <b>{trMoney(month.fixedCard)}</b>
+            Bu dönemde kart hedefinden ayrılan sabit ödeme <b>{trMoney(month.fixedCard)}</b>
           </span>
         )}
       </div>
       <p className="monthlyHelp">
-        Bu bölüm yalnız yaşam harcamalarını gösterir. Krediler, kart borcu
-        ödemesi, faturalar ve diğer sabit ödemeler bu hedefe dahil değildir.
+        Bu tutar hesap bakiyesi değildir; yalnız yaşam harcaması hedefinden
+        kalan payı gösterir. Krediler, kart borcu ödemesi ve kart hedefinden
+        ayrılmayan diğer sabit ödemeler bu hedefe dahil değildir.
       </p>
     </section>
   );
