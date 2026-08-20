@@ -627,7 +627,12 @@ function Dashboard({ session }: { session: Session }) {
   }).length;
   async function toggle(p: any, ty = y, tm = m) {
     const d = normalize(data),
-      k = paymentKey(ty, tm, p.id);
+      k = paymentKey(ty, tm, p.id),
+      historicalStaged = p.kart_borc_odeme
+        ? (d.kart_kademeli_odemeler || [])
+            .filter((x: any) => Number(x.odeme_id) === Number(p.id) && Number(x.yil) === ty && Number(x.ay) === tm)
+            .reduce((sum: number, x: any) => sum + num(x.tutar), 0)
+        : 0;
     if (d.odendi_kayitlari[k]) {
       delete d.odendi_kayitlari[k];
       delete d.gerceklesen_odemeler[k];
@@ -638,7 +643,9 @@ function Dashboard({ session }: { session: Session }) {
       yil: ty,
       ay: tm,
       odeme_id: p.id,
-      tutar: paymentAmount(d, p, ty, tm),
+      // Eski kademeli kayıt varsa yalnız sabit tutarın kalanını tamamla;
+      // yeni aylarda historicalStaged=0 olduğundan sabit tutarın tamamı işlenir.
+      tutar: Math.max(0, paymentAmount(d, p, ty, tm) - historicalStaged),
       odeme_kaynagi: p.odeme_kaynagi || "banka",
       kart_borc_odeme: !!p.kart_borc_odeme,
       olusturma_zamani: new Date().toISOString(),
@@ -898,7 +905,6 @@ function Payments({
   now?: Date;
 }) {
   const [form, setForm] = useState<any>(),
-    [partial, setPartial] = useState<any>(),
     [showPaid, setShowPaid] = useState(false),
     [navYear, setNavYear] = useState(y),
     [navMonth, setNavMonth] = useState(m);
@@ -1080,16 +1086,11 @@ function Payments({
             {staged > 0 && (
               <div className="stagedList">
                 <small className="stagedPaymentNote">{trMoney(staged)} kademeli ödendi</small>
-                {edit && data.kart_kademeli_odemeler
+                {data.kart_kademeli_odemeler
                   .filter((x: any) => Number(x.odeme_id) === Number(p.id) && Number(x.yil) === displayY && Number(x.ay) === displayM)
                   .map((x: any) => (
                     <span key={x.id} className="stagedItem">
-                      {x.tarih} · {trMoney(x.tutar)}
-                      <button className="danger" style={{ padding: "2px 7px", fontSize: "11px" }} onClick={() => {
-                        const d = normalize(data);
-                        d.kart_kademeli_odemeler = d.kart_kademeli_odemeler.filter((q: any) => q.id !== x.id);
-                        save(d, "Kademeli ödeme silindi");
-                      }}>Sil</button>
+                      {x.tarih} · {trMoney(x.tutar)} · geçmiş kayıt
                     </span>
                   ))
                 }
@@ -1097,14 +1098,6 @@ function Payments({
             )}
             {edit && (
               <span className="payActions">
-                {p.kart_borc_odeme && (
-                  <button
-                    className="ghost"
-                    onClick={() => setPartial({ p, tutar: "", tarih: dateToIso(todayUtc()) })}
-                  >
-                    Kademeli ödeme
-                  </button>
-                )}
                 <button
                   className="ghost"
                   onClick={() =>
@@ -1128,59 +1121,6 @@ function Payments({
       {footerAction && (
         <div style={{ textAlign: "center", padding: "8px 0 4px" }}>
           <button className="linkButton" onClick={footerAction.onClick}>{footerAction.label} →</button>
-        </div>
-      )}
-      {partial && (
-        <div className="partialPaymentForm">
-          <b>{partial.p.ad} · kademeli ödeme</b>
-          <label>
-            Tarih
-            <input
-              type="date"
-              value={partial.tarih}
-              onChange={(e) => setPartial({ ...partial, tarih: e.target.value })}
-            />
-          </label>
-          <label>
-            Tutar
-            <input
-              type="text"
-              inputMode="numeric"
-              value={partial.tutar}
-              onChange={(e) => setPartial({ ...partial, tutar: e.target.value })}
-              onFocus={(e) => e.target.select()}
-            />
-          </label>
-          <div className="actions">
-            <button
-              className="primary"
-              onClick={() => {
-                const amount = Number(partial.tutar || 0),
-                  date = String(partial.tarih || "").slice(0, 10),
-                  parts = date.split("-").map(Number);
-                if (!(amount > 0) || parts.length !== 3) return;
-                const d = normalize(data);
-                d.kart_kademeli_odemeler.push({
-                  id: newId(),
-                  odeme_id: partial.p.id,
-                  tarih: date,
-                  yil: parts[0],
-                  ay: parts[1],
-                  tutar: amount,
-                  kaynak: "garanti_kmh",
-                  olusturma_zamani: new Date().toISOString(),
-                });
-                setPartial(null);
-                save(d, "Kademeli kart ödemesi kaydedildi");
-              }}
-            >
-              Kaydet
-            </button>
-            <button className="ghost" onClick={() => setPartial(null)}>
-              Vazgeç
-            </button>
-          </div>
-          <small>Bu tutar Garanti/KMH’den çıkar; kart borcunu azaltır ve kullanılabilir limiti artırır.</small>
         </div>
       )}
       {form && (

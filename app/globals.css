@@ -1357,41 +1357,6 @@ nav button {
   grid-column: 2 / -1;
 }
 
-/* Ödemeler — kademeli ödeme formu */
-.partialPaymentForm {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  margin-top: 16px;
-}
-.partialPaymentForm b {
-  font-size: 15px;
-  color: var(--ink);
-}
-.partialPaymentForm label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 13px;
-  color: var(--muted);
-}
-.partialPaymentForm label input {
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  font-size: 14px;
-  color: var(--ink);
-  background: #fff;
-}
-.partialPaymentForm small {
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.5;
-}
 /* Kapatılabilir uyarı banner'ı */
 .alertBanner {
   display: flex;
