@@ -794,6 +794,11 @@ aside {
 }
 .statementResult span { display: flex; justify-content: space-between; gap: 16px; }
 .statementResult > strong { padding-top: 8px; border-top: 1px solid var(--line); }
+.advancedStatement { margin-top: 14px; border: 1px solid var(--line); border-radius: 10px; }
+.advancedStatement > summary { cursor: pointer; padding: 12px 14px; font-weight: 700; }
+.advancedStatement[open] > summary { border-bottom: 1px solid var(--line); }
+.advancedStatement > .helperText { padding: 12px 14px 0; }
+.advancedStatement > .formGrid { padding: 0 14px 14px; }
 .saveFeedback {
   display: inline-block;
   margin: 12px 0 0 10px;

@@ -159,6 +159,12 @@ const supabase = createClient(
 );
 const num = (v: any) => Number(v) || 0,
   newId = () => Date.now() + Math.floor(Math.random() * 1000);
+const shiftIsoDate = (value: string, days: number) => {
+  const d = new Date(`${String(value).slice(0, 10)}T00:00:00Z`);
+  if (isNaN(+d)) return "";
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
 type Save = (d: BudgetData, m?: string) => void;
 
 function parseTrMoney(value: string): number | null {
@@ -1659,7 +1665,7 @@ function Update({
     yk_kullanilabilir: num(data.guncel_durum.yk_kullanilabilir),
     yk_limit: num(data.guncel_durum.yk_limit),
   });
-  const [ekstre, setEkstre] = useState({
+  const [ekstre, setEkstre] = useState<any>({
     hesap_kesim_tarihi: "",
     son_odeme_tarihi: "",
     sonraki_hesap_kesim_tarihi: "",
@@ -1726,6 +1732,18 @@ function Update({
       },
     };
     save(d, "YK kart ve hesap özeti güncellendi");
+  }
+  function setEkstreKesimTarihi(value: string) {
+    setEkstre({
+      ...ekstre,
+      hesap_kesim_tarihi: value,
+      son_odeme_tarihi: shiftIsoDate(value, 10),
+      sonraki_hesap_kesim_tarihi: shiftIsoDate(value, 30),
+      odeme_tarihi: "",
+      kalan_donem_borcu: "",
+      donem_faizi: 0,
+      yillik_kart_ucreti: 0,
+    });
   }
   function saveHedefler() {
     const d = normalize(data);
@@ -1807,20 +1825,26 @@ function Update({
         <div className="statementEditor">
           <h3>Son hesap özeti</h3>
           <p className="helperText">
-            Her ay ekstrede yazan değerleri girin. Ödeme tarihi boşsa asgarinin son ödeme tarihinden bir gün önce ödendiği varsayılır.
+            Her ay yalnız bu dört alanı girin. Diğer tarihler ve kalan borç otomatik hesaplanır.
           </p>
           <div className="formGrid">
-            <DateField l="Hesap kesim tarihi" v={ekstre.hesap_kesim_tarihi} set={(v) => setEkstre({ ...ekstre, hesap_kesim_tarihi: v })} />
-            <DateField l="Son ödeme tarihi" v={ekstre.son_odeme_tarihi} set={(v) => setEkstre({ ...ekstre, son_odeme_tarihi: v })} />
-            <DateField l="Sonraki hesap kesim tarihi" v={ekstre.sonraki_hesap_kesim_tarihi} set={(v) => setEkstre({ ...ekstre, sonraki_hesap_kesim_tarihi: v })} />
-            <DateField l="Ödemenin karta yansıdığı tarih" v={ekstre.odeme_tarihi} set={(v) => setEkstre({ ...ekstre, odeme_tarihi: v })} />
+            <DateField l="Hesap kesim tarihi" v={ekstre.hesap_kesim_tarihi} set={setEkstreKesimTarihi} />
             <Field l="Dönem borcu" v={ekstre.donem_borcu} set={(v) => setEkstre({ ...ekstre, donem_borcu: v })} />
             <Field l="Asgari ödeme tutarı" v={ekstre.asgari_tutar} set={(v) => setEkstre({ ...ekstre, asgari_tutar: v })} />
             <Field l="Gerçek ödenen tutar (en az asgari)" v={ekstre.odenen_tutar} set={(v) => setEkstre({ ...ekstre, odenen_tutar: v })} />
-            <Field l="Bankada görünen kalan ekstre" v={ekstre.kalan_donem_borcu} set={(v) => setEkstre({ ...ekstre, kalan_donem_borcu: v })} />
-            <Field l="Ekstredeki dönem faizi" v={ekstre.donem_faizi} set={(v) => setEkstre({ ...ekstre, donem_faizi: v })} />
-            <Field l="Yıllık kart ücreti" v={ekstre.yillik_kart_ucreti} set={(v) => setEkstre({ ...ekstre, yillik_kart_ucreti: v })} />
           </div>
+          <details className="advancedStatement">
+            <summary>Ek bilgiler (isteğe bağlı)</summary>
+            <p className="helperText">Yalnız bankadaki tarih veya kalan borç otomatik değerden farklıysa değiştirin.</p>
+            <div className="formGrid">
+              <DateField l="Son ödeme tarihi" v={ekstre.son_odeme_tarihi} set={(v) => setEkstre({ ...ekstre, son_odeme_tarihi: v })} />
+              <DateField l="Sonraki hesap kesim tarihi" v={ekstre.sonraki_hesap_kesim_tarihi} set={(v) => setEkstre({ ...ekstre, sonraki_hesap_kesim_tarihi: v })} />
+              <DateField l="Ödemenin karta yansıdığı tarih" v={ekstre.odeme_tarihi} set={(v) => setEkstre({ ...ekstre, odeme_tarihi: v })} />
+              <Field l="Bankada görünen kalan ekstre" v={ekstre.kalan_donem_borcu} set={(v) => setEkstre({ ...ekstre, kalan_donem_borcu: v })} />
+              <Field l="Ekstredeki dönem faizi" v={ekstre.donem_faizi} set={(v) => setEkstre({ ...ekstre, donem_faizi: v })} />
+              <Field l="Yıllık kart ücreti" v={ekstre.yillik_kart_ucreti} set={(v) => setEkstre({ ...ekstre, yillik_kart_ucreti: v })} />
+            </div>
+          </details>
           {ekstreFaiz.valid && (
             <div className="statementResult" role="status">
               <div className={ekstreFaiz.minimumMet && ekstreFaiz.paymentOnTime ? "good" : "bad"}>

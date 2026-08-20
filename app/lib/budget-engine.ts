@@ -523,19 +523,18 @@ export function cardStatementInterest(statement: AnyMap, settings: AnyMap = {}) 
     ),
     eligibleOpening = Math.max(0, periodDebt - excluded),
     eligibleAfterPayment = Math.max(0, eligibleOpening - paid),
-    reportedRemaining = Math.max(
-      0,
-      n(statement.kalan_donem_borcu, Math.max(0, periodDebt - paid)),
-    ),
+    reportedRemaining = statement.kalan_donem_borcu == null || statement.kalan_donem_borcu === ""
+      ? Math.max(0, periodDebt - paid)
+      : Math.max(0, n(statement.kalan_donem_borcu)),
     tier = cardRateTier(periodDebt),
     contractualRate = Math.max(
       0,
       n(statement.akdi_faiz_orani, tier.contractual),
     ),
-    taxRate = Math.max(0, n(statement.vergi_orani, n(settings.kart_faiz_vergi_orani, 0.3))),
     cut = isoDate(statement.hesap_kesim_tarihi),
-    due = isoDate(statement.son_odeme_tarihi),
-    nextCut = isoDate(statement.sonraki_hesap_kesim_tarihi),
+    due = isoDate(statement.son_odeme_tarihi) || (cut ? addDays(cut, 10) : null),
+    nextCut = isoDate(statement.sonraki_hesap_kesim_tarihi) || (cut ? addDays(cut, 30) : null),
+    taxRate = Math.max(0, n(statement.vergi_orani, n(settings.kart_faiz_vergi_orani, 0.3))),
     paymentDate = isoDate(statement.odeme_tarihi) || (due ? addDays(due, -1) : null);
   if (!cut || !due || !nextCut || +nextCut <= +cut)
     return {
@@ -549,6 +548,8 @@ export function cardStatementInterest(statement: AnyMap, settings: AnyMap = {}) 
       paymentOnTime: false,
       contractualRate,
       taxRate,
+      assumedDueDate: !statement.son_odeme_tarihi,
+      assumedNextCutDate: !statement.sonraki_hesap_kesim_tarihi,
     };
 
   const payAt = new Date(Math.min(+nextCut, Math.max(+cut, +paymentDate!))),
@@ -578,6 +579,10 @@ export function cardStatementInterest(statement: AnyMap, settings: AnyMap = {}) 
     contractualRate,
     taxRate,
     assumedPaymentDate: !statement.odeme_tarihi,
+    assumedDueDate: !statement.son_odeme_tarihi,
+    assumedNextCutDate: !statement.sonraki_hesap_kesim_tarihi,
+    dueDate: dateIso(dueAt),
+    nextCutDate: dateIso(nextCut),
   };
 }
 function cardMonth(
