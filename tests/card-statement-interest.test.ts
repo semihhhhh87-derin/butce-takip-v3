@@ -33,3 +33,18 @@ test("asgari ödeme zamanında yapıldığında yalnız günlük akdi faiz hesap
   assert.ok(Math.abs(result.contractualInterest - expectedContractual) < 0.001);
   assert.ok(Math.abs(result.total - expectedContractual * 1.3) < 0.001);
 });
+
+test("asgari üzerindeki gerçek ödeme faiz matrahını daha fazla azaltır", () => {
+  const base = {
+    hesap_kesim_tarihi: "2026-08-09",
+    son_odeme_tarihi: "2026-08-19",
+    sonraki_hesap_kesim_tarihi: "2026-09-08",
+    odeme_tarihi: "2026-08-18",
+    donem_borcu: 75_000,
+    asgari_tutar: 30_000,
+  };
+  const minimum = cardStatementInterest({ ...base, odenen_tutar: 30_000 });
+  const extra = cardStatementInterest({ ...base, odenen_tutar: 40_000 });
+  assert.ok(extra.total < minimum.total);
+  assert.equal(extra.minimumMet, true);
+});
