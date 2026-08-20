@@ -29,6 +29,19 @@ export const nextMonth = (y: number, m: number): [number, number] =>
   m === 12 ? [y + 1, 1] : [y, m + 1];
 const daysInMonth = (y: number, m: number) =>
   new Date(Date.UTC(y, m, 0)).getUTCDate();
+const MOVABLE_TR_HOLIDAYS: Record<number, string[]> = {
+  2026: ["03-19", "03-20", "03-21", "03-22", "05-26", "05-27", "05-28", "05-29", "05-30"],
+  2027: ["03-08", "03-09", "03-10", "03-11", "05-15", "05-16", "05-17", "05-18", "05-19"],
+  2028: ["02-25", "02-26", "02-27", "02-28", "05-04", "05-05", "05-06", "05-07", "05-08"],
+  2029: ["02-13", "02-14", "02-15", "02-16", "04-23", "04-24", "04-25", "04-26", "04-27"],
+  2030: ["02-03", "02-04", "02-05", "02-06", "04-12", "04-13", "04-14", "04-15", "04-16"],
+  2031: ["01-23", "01-24", "01-25", "01-26", "04-01", "04-02", "04-03", "04-04", "04-05"],
+};
+const FIXED_TR_HOLIDAYS = new Set(["01-01", "04-23", "05-01", "05-19", "07-15", "08-30", "10-28", "10-29"]);
+export function isTurkishPublicHoliday(d: Date): boolean {
+  const md = `${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  return FIXED_TR_HOLIDAYS.has(md) || (MOVABLE_TR_HOLIDAYS[d.getUTCFullYear()] || []).includes(md);
+}
 const isoDate = (s: any) => {
   const d = new Date(`${String(s).slice(0, 10)}T00:00:00Z`);
   return isNaN(+d) ? null : d;
@@ -140,8 +153,11 @@ export function extraIncome(d: BudgetData, y: number, m: number) {
 
 export function effectiveDay(y: number, m: number, day: number) {
   let result = new Date(Date.UTC(y, m - 1, Math.min(day, daysInMonth(y, m))));
-  if (result.getUTCDay() === 6) result = addDays(result, 2);
-  else if (result.getUTCDay() === 0) result = addDays(result, 1);
+  while (
+    result.getUTCDay() === 0 ||
+    result.getUTCDay() === 6 ||
+    isTurkishPublicHoliday(result)
+  ) result = addDays(result, -1);
   return result;
 }
 

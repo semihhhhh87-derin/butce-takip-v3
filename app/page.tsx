@@ -12,6 +12,7 @@ import {
   effectiveDay,
   exitDates,
   incomeStatus,
+  isTurkishPublicHoliday,
   liveFinancial,
   monthlySpendingSummary,
   normalize,
@@ -30,26 +31,12 @@ import {
 } from "./lib/budget-engine";
 
 const TR_MONTHS_SHORT = ["Oca","Şub","Mar","Nis","May","Haz","Tem","Ağu","Eyl","Eki","Kas","Ara"];
-const MOVABLE_TR_HOLIDAYS: Record<number, string[]> = {
-  2026: ["03-19", "03-20", "03-21", "03-22", "05-26", "05-27", "05-28", "05-29", "05-30"],
-  2027: ["03-08", "03-09", "03-10", "03-11", "05-15", "05-16", "05-17", "05-18", "05-19"],
-  2028: ["02-25", "02-26", "02-27", "02-28", "05-04", "05-05", "05-06", "05-07", "05-08"],
-  2029: ["02-13", "02-14", "02-15", "02-16", "04-23", "04-24", "04-25", "04-26", "04-27"],
-  2030: ["02-03", "02-04", "02-05", "02-06", "04-12", "04-13", "04-14", "04-15", "04-16"],
-  2031: ["01-23", "01-24", "01-25", "01-26", "04-01", "04-02", "04-03", "04-04", "04-05"],
-};
-const FIXED_TR_HOLIDAYS = new Set(["01-01", "04-23", "05-01", "05-19", "07-15", "08-30", "10-28", "10-29"]);
 function fmtShortDate(d: Date): string {
   return `${d.getUTCDate()} ${TR_MONTHS_SHORT[d.getUTCMonth()]}`;
 }
 
 function startOfUtcDay(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-}
-
-function isTurkishPublicHoliday(d: Date): boolean {
-  const md = `${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-  return FIXED_TR_HOLIDAYS.has(md) || (MOVABLE_TR_HOLIDAYS[d.getUTCFullYear()] || []).includes(md);
 }
 
 /** Bugünden vade tarihine kadar kalan iş gününü sayar; cumartesi ve pazar sayılmaz. */
@@ -392,7 +379,7 @@ function Dashboard({ session }: { session: Session }) {
     [data, setData] = useState<BudgetData | null>(null),
     [family, setFamily] = useState(""),
     [sync, setSync] = useState("Bağlanıyor"),
-    [clock, setClock] = useState(new Date()),
+    [lastSyncAt, setLastSyncAt] = useState<Date | null>(null),
     [notice, setNotice] = useState(""),
     [now, setNow] = useState(todayUtc()),
     [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => {
@@ -544,12 +531,13 @@ function Dashboard({ session }: { session: Session }) {
         .eq("version", r.data.version);
       versionRef.current = r.data.version + 1;
     }
+    setLastSyncAt(new Date());
   }
   useEffect(() => {
     // Initial load synchronizes the component with the authenticated remote store.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
-    const timer = window.setInterval(() => { setNow(todayUtc()); setClock(new Date()); }, 1000);
+    const timer = window.setInterval(() => setNow(todayUtc()), 1000);
     return () => window.clearInterval(timer);
   }, []);
   async function save(next: BudgetData, message = "Kaydedildi") {
@@ -613,6 +601,7 @@ function Dashboard({ session }: { session: Session }) {
     }
     versionRef.current = r.data.version;
     setSync("Güncel");
+    setLastSyncAt(new Date());
     setNotice(finalMessage);
   }
   if (!data) return <Center text="Aile bütçeniz yükleniyor…" loading />;
@@ -721,7 +710,9 @@ function Dashboard({ session }: { session: Session }) {
         <div className="sync" role="status">
           <i className={sync === "Kaydediliyor" ? "syncing" : sync === "Bağlantı hatası" ? "syncErr" : ""} />
           {sync === "Güncel"
-            ? `Son senkronizasyon: ${new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Istanbul" }).format(clock)}`
+            ? lastSyncAt
+              ? `Son senkronizasyon: ${new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Istanbul" }).format(lastSyncAt)}`
+              : "Güncel"
             : sync}
           <button onClick={() => supabase.auth.signOut()}>Çıkış</button>
         </div>
@@ -731,7 +722,8 @@ function Dashboard({ session }: { session: Session }) {
           <span>KMH&apos;DEN ÇIKIŞ HEDEFİ</span>
           <h1>{trMonth(plan.kmh)}</h1>
           {plan.kmh && (() => {
-            const startDate = new Date(Date.UTC(2026, 7, 1)); // Ağustos 2026 başlangıç
+            const configuredStart = new Date(`${String(data.butce_plani.butce_baslangic_tarihi).slice(0, 10)}T00:00:00Z`);
+            const startDate = isNaN(+configuredStart) ? new Date(Date.UTC(2026, 7, 17)) : configuredStart;
             const targetDate = new Date(Date.UTC(plan.kmh[0], plan.kmh[1] - 1, 1));
             const total = Math.max(1, +targetDate - +startDate);
             const elapsed = Math.min(+now - +startDate, total);
