@@ -317,12 +317,15 @@ export function freshWeeklySummary(d: BudgetData, target = todayUtc()) {
 }
 export function weeklyCarryAdjustment(d: BudgetData, target: Date) {
   const [start] = weekRange(target);
+  const milestone = isoDate(d.butce_plani.butce_baslangic_tarihi),
+    milestoneWeekStart = milestone ? weekRange(milestone)[0] : null;
   let kartNet = 0,
     nakitNet = 0;
   for (const c of Object.values(d.haftalik_kapanislar || {}) as AnyMap[]) {
     const s = isoDate(c.baslangic),
       e = isoDate(c.bitis);
     if (!s || !e || +s >= +start) continue;
+    if (milestoneWeekStart && +s < +milestoneWeekStart) continue;
     const { goal } = weeklyGoal(d, s, e);
     kartNet += goal.kart - n(c.kart);
     nakitNet += goal.nakit - n(c.nakit);
