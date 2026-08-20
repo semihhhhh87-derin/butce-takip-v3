@@ -1530,7 +1530,7 @@ function WeekBox({
         <span>
           {r >= 0 ? "Kullanılabilir bütçe" : "Kullanılabilir bütçe aşıldı"}
         </span>
-        <b>{trMoney(r)} kalan</b>
+        <b>{r >= 0 ? `${trMoney(r)} kalan` : `${trMoney(Math.abs(r))} aşım`}</b>
       </div>
     </section>
   );
@@ -1999,7 +1999,9 @@ function Meter({ l, v, max, color }: { l: string; v: number; max: number; color?
           <span className="meterDot">·</span>
           <span>{trMoney(max)} limit</span>
           <span className="meterDot">·</span>
-          <b className={kalan < 0 ? "bad" : ""}>{trMoney(kalan)} kalan</b>
+          <b className={kalan < 0 ? "bad" : ""}>
+            {kalan < 0 ? `${trMoney(Math.abs(kalan))} aşım` : `${trMoney(kalan)} kalan`}
+          </b>
         </span>
       </div>
       <em>
