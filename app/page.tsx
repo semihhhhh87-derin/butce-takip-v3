@@ -29,12 +29,26 @@ import {
 } from "./lib/budget-engine";
 
 const TR_MONTHS_SHORT = ["Oca","Şub","Mar","Nis","May","Haz","Tem","Ağu","Eyl","Eki","Kas","Ara"];
+const MOVABLE_TR_HOLIDAYS: Record<number, string[]> = {
+  2026: ["03-19", "03-20", "03-21", "03-22", "05-26", "05-27", "05-28", "05-29", "05-30"],
+  2027: ["03-08", "03-09", "03-10", "03-11", "05-15", "05-16", "05-17", "05-18", "05-19"],
+  2028: ["02-25", "02-26", "02-27", "02-28", "05-04", "05-05", "05-06", "05-07", "05-08"],
+  2029: ["02-13", "02-14", "02-15", "02-16", "04-23", "04-24", "04-25", "04-26", "04-27"],
+  2030: ["02-03", "02-04", "02-05", "02-06", "04-12", "04-13", "04-14", "04-15", "04-16"],
+  2031: ["01-23", "01-24", "01-25", "01-26", "04-01", "04-02", "04-03", "04-04", "04-05"],
+};
+const FIXED_TR_HOLIDAYS = new Set(["01-01", "04-23", "05-01", "05-19", "07-15", "08-30", "10-28", "10-29"]);
 function fmtShortDate(d: Date): string {
   return `${d.getUTCDate()} ${TR_MONTHS_SHORT[d.getUTCMonth()]}`;
 }
 
 function startOfUtcDay(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+function isTurkishPublicHoliday(d: Date): boolean {
+  const md = `${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  return FIXED_TR_HOLIDAYS.has(md) || (MOVABLE_TR_HOLIDAYS[d.getUTCFullYear()] || []).includes(md);
 }
 
 /** Bugünden vade tarihine kadar kalan iş gününü sayar; cumartesi ve pazar sayılmaz. */
@@ -44,7 +58,7 @@ function businessDaysUntil(from: Date, due: Date): number {
   while (+cursor < +end) {
     cursor.setUTCDate(cursor.getUTCDate() + 1);
     const day = cursor.getUTCDay();
-    if (day !== 0 && day !== 6) count += 1;
+    if (day !== 0 && day !== 6 && !isTurkishPublicHoliday(cursor)) count += 1;
   }
   return count;
 }
@@ -58,6 +72,7 @@ function businessDueLabel(from: Date, due: Date): string {
   if (calendarDays === 0) return "bugün";
   if (calendarDays === 1) return "yarın";
   const workDays = businessDaysUntil(from, due);
+  if (isTurkishPublicHoliday(due)) return `${workDays} iş günü sonra · resmî tatil`;
   if (due.getUTCDay() === 0 || due.getUTCDay() === 6)
     return `${workDays} iş günü sonra · hafta sonu`;
   return `${workDays} iş günü içinde`;
@@ -344,8 +359,20 @@ function Dashboard({ session }: { session: Session }) {
     [clock, setClock] = useState(new Date()),
     [notice, setNotice] = useState(""),
     [now, setNow] = useState(todayUtc()),
-    [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(new Set());
-  function dismissAlert(key: string) { setDismissedAlerts((s) => new Set([...s, key])); }
+    [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => {
+      try {
+        if (typeof window === "undefined") return new Set();
+        return new Set(JSON.parse(localStorage.getItem(`budget-alerts-${dateToIso(todayUtc())}`) || "[]"));
+      } catch { return new Set(); }
+    });
+  function dismissAlert(key: string) {
+    setDismissedAlerts((current) => {
+      const next = new Set([...current, key]);
+      if (typeof window !== "undefined")
+        localStorage.setItem(`budget-alerts-${dateToIso(todayUtc())}`, JSON.stringify([...next]));
+      return next;
+    });
+  }
   const versionRef = useRef(0),
     dataRef = useRef<BudgetData | null>(null);
   async function load() {
@@ -715,7 +742,7 @@ function Dashboard({ session }: { session: Session }) {
         </div>
       )}
       {(() => {
-        const alerts: { key: string; msg: string; type: "warn" | "danger" }[] = [];
+        const alerts: { key: string; msg: string; type: "info" | "warn" | "danger"; action?: boolean }[] = [];
         const weekOver = week.spent.kart + week.spent.nakit > (freshWeek.goal.kart + freshWeek.goal.nakit);
         if (weekOver && !dismissedAlerts.has("week-over"))
           alerts.push({ key: "week-over", msg: "Bu haftanın harcama hedefi aşıldı.", type: "danger" });
@@ -743,17 +770,33 @@ function Dashboard({ session }: { session: Session }) {
         if (overduePayments.length > 0 && !dismissedAlerts.has("overdue"))
           alerts.push({ key: "overdue", msg: `${overduePayments.length} ödemeniz gecikmiş: ${overduePayments.map((p: any) => p.ad).join(", ")}`, type: "danger" });
         if (upcomingPayments.length > 0 && !dismissedAlerts.has("upcoming")) {
+          const minWorkDays = Math.min(...upcomingPayments.map((p: any) => businessDaysUntil(now, effectiveDay(y, m, num(p.odeme_gunu)))));
+          const upcomingTotal = upcomingPayments.reduce((sum: number, p: any) => {
+            const planned = paymentAmount(data, p, y, m);
+            const staged = p.kart_borc_odeme ? (data.kart_kademeli_odemeler || [])
+              .filter((x: any) => Number(x.odeme_id) === Number(p.id) && Number(x.yil) === y && Number(x.ay) === m)
+              .reduce((s: number, x: any) => s + num(x.tutar), 0) : 0;
+            return sum + Math.max(0, planned - staged);
+          }, 0);
           const upcomingMsg = upcomingPayments.map((p: any) => {
             const due = effectiveDay(y, m, num(p.odeme_gunu));
             const label = businessDueLabel(now, due);
             return `${p.ad} (${label})`;
           }).join(", ");
-          alerts.push({ key: "upcoming", msg: `Yaklaşan ödeme: ${upcomingMsg}`, type: "warn" });
+          alerts.push({
+            key: "upcoming",
+            msg: `${upcomingPayments.length} yaklaşan ödeme · Toplam ${trMoney(upcomingTotal)}: ${upcomingMsg}`,
+            type: minWorkDays === 0 ? "danger" : minWorkDays === 1 ? "warn" : "info",
+            action: true,
+          });
         }
         return alerts.map((a) => (
           <div key={a.key} className={`alertBanner ${a.type}`}>
             <span>{a.msg}</span>
-            <button onClick={() => dismissAlert(a.key)}>✕</button>
+            <span className="alertActions">
+              {a.action && <button className="alertPrimary" onClick={() => setTab("odemeler")}>Ödemelere git</button>}
+              <button onClick={() => dismissAlert(a.key)}>Bugün tekrar gösterme</button>
+            </span>
           </div>
         ));
       })()}

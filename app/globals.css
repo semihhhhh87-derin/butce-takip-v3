@@ -1412,14 +1412,29 @@ nav button {
   color: #7a4f00;
   border-bottom: 1px solid #ffe0a0;
 }
+.alertBanner.info {
+  background: #eef5ff;
+  color: #24538a;
+  border-bottom: 1px solid #cfe1f7;
+}
+.alertActions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .alertBanner button {
   border: 0;
   background: transparent;
   font-size: 16px;
   cursor: pointer;
-  opacity: 0.6;
-  padding: 0 4px;
+  opacity: 0.8;
+  padding: 5px 8px;
   flex-shrink: 0;
+}
+.alertBanner button.alertPrimary {
+  border: 1px solid currentColor;
+  border-radius: 7px;
+  font-weight: 800;
+}
+@media (max-width: 700px) {
+  .alertBanner { align-items: flex-start; flex-direction: column; }
+  .alertActions { width: 100%; flex-wrap: wrap; }
 }
 .alertBanner button:hover { opacity: 1; }
 /* Harcama satırında tarih */
