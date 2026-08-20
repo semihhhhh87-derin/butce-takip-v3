@@ -89,7 +89,7 @@ export function normalize(raw: any): BudgetData {
   for (const state of Object.values(d.aylik_ankorlar))
     if (state && typeof state === "object" && !Array.isArray(state))
       closeLegacyRefund(state as AnyMap);
-  d.ayarlar.faiz_orani ??= 0.06448;
+  d.ayarlar.faiz_orani ??= 0.0553;
   d.ayarlar.kart_akdi_faiz_orani ??= 0.0375;
   d.ayarlar.kart_faiz_vergi_orani ??= 0.3;
   d.butce_plani.haftalik_ay_carpani ??= 52 / 12;
@@ -586,14 +586,22 @@ export function cardStatementInterest(statement: AnyMap, settings: AnyMap = {}) 
   };
 }
 
-export function cardReductionAdvice(month: AnyMap, statement: AnyMap = {}) {
+export function cardReductionAdvice(
+  month: AnyMap,
+  statement: AnyMap = {},
+  weeklyCardTarget = 0,
+) {
   const money = (value: number) => Math.round(value * 100) / 100,
     minimum = money(Math.max(0, n(statement.asgari_tutar))),
     paid = money(Math.max(minimum, n(statement.odenen_tutar))),
-    projectedNewCharges = money(Math.max(0, n(month?.kart_yeni_harcama))),
+    cut = isoDate(statement.hesap_kesim_tarihi),
+    nextCut = isoDate(statement.sonraki_hesap_kesim_tarihi),
+    cycleDays = cut && nextCut && +nextCut > +cut ? dateDiff(cut, nextCut) : 30,
+    projectedNewCharges = money(Math.max(0, n(weeklyCardTarget)) / 7 * cycleDays),
     projectedInterest = money(Math.max(0, n(month?.kart_faiz))),
     futureCost = money(projectedNewCharges + projectedInterest),
-    paymentNow = futureCost > 0 ? money(futureCost + 0.01) : 0,
+    requiredTotalPayment = futureCost > 0 ? money(futureCost + 0.01) : 0,
+    paymentNow = money(Math.max(0, requiredTotalPayment - paid)),
     totalCardPayment = money(paid + paymentNow);
   return {
     minimum,
@@ -601,10 +609,12 @@ export function cardReductionAdvice(month: AnyMap, statement: AnyMap = {}) {
     projectedNewCharges,
     projectedInterest,
     futureCost,
+    cycleDays,
+    requiredTotalPayment,
     paymentNow,
     totalCardPayment,
     aboveMinimum: money(Math.max(0, totalCardPayment - minimum)),
-    expectedCardReduction: paymentNow > 0 ? 0.01 : 0,
+    expectedCardReduction: requiredTotalPayment > 0 ? 0.01 : 0,
     kmhIncrease: paymentNow,
     combinedDebtChangeAtPayment: 0,
   };

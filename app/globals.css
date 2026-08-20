@@ -794,13 +794,6 @@ aside {
 }
 .statementResult span { display: flex; justify-content: space-between; gap: 16px; }
 .statementResult > strong { padding-top: 8px; border-top: 1px solid var(--line); }
-.cardReductionCard { margin-top: 14px; }
-.cardReductionCard > small { color: var(--muted); }
-.cardReductionCard > strong { display: block; margin: 10px 0 14px; font-size: 1.45rem; color: #564fd8; }
-.cardReductionBreakdown { display: grid; gap: 8px; font-size: 0.84rem; }
-.cardReductionBreakdown span { display: flex; justify-content: space-between; gap: 12px; }
-.cardReductionCard p { color: var(--muted); font-size: 0.82rem; line-height: 1.45; }
-.kmhTransferWarning { padding: 11px 12px; border-radius: 9px; background: #fff4e5; color: #8a4b08; font-size: 0.82rem; line-height: 1.45; font-weight: 650; }
 .advancedStatement { margin-top: 14px; border: 1px solid var(--line); border-radius: 10px; }
 .advancedStatement > summary { cursor: pointer; padding: 12px 14px; font-weight: 700; }
 .advancedStatement > summary::after { content: "+" !important; margin-left: auto; }

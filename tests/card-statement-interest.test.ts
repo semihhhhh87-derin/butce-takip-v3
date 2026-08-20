@@ -68,12 +68,31 @@ test("yalnız dört ana alanla tarihler ve kalan borç otomatik tamamlanır", ()
 
 test("kart azaltma eşiği yeni harcama ve faizin bir kuruş üzeridir", () => {
   const result = cardReductionAdvice(
-    { kart_yeni_harcama: 12_000, kart_faiz: 2_500 },
-    { asgari_tutar: 30_000, odenen_tutar: 35_000 },
+    { kart_faiz: 2_500 },
+    {
+      hesap_kesim_tarihi: "2026-08-09",
+      sonraki_hesap_kesim_tarihi: "2026-09-08",
+      asgari_tutar: 30_000,
+      odenen_tutar: 30_000,
+    },
+    7_000,
   );
-  assert.equal(result.paymentNow, 14_500.01);
-  assert.equal(result.totalCardPayment, 49_500.01);
-  assert.equal(result.aboveMinimum, 19_500.01);
-  assert.equal(result.kmhIncrease, 14_500.01);
+  assert.equal(result.cycleDays, 30);
+  assert.equal(result.projectedNewCharges, 30_000);
+  assert.equal(result.requiredTotalPayment, 32_500.01);
+  assert.equal(result.paymentNow, 2_500.01);
+  assert.equal(result.totalCardPayment, 32_500.01);
+  assert.equal(result.aboveMinimum, 2_500.01);
+  assert.equal(result.kmhIncrease, 2_500.01);
   assert.equal(result.combinedDebtChangeAtPayment, 0);
+});
+
+test("asgari ödeme hedef ve faizi aşıyorsa ek ödeme sıfırdır", () => {
+  const result = cardReductionAdvice(
+    { kart_faiz: 1_000 },
+    { asgari_tutar: 35_000, odenen_tutar: 35_000 },
+    7_000,
+  );
+  assert.equal(result.projectedNewCharges, 30_000);
+  assert.equal(result.paymentNow, 0);
 });
