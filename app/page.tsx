@@ -33,6 +33,36 @@ function fmtShortDate(d: Date): string {
   return `${d.getUTCDate()} ${TR_MONTHS_SHORT[d.getUTCMonth()]}`;
 }
 
+function startOfUtcDay(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+/** Bugünden vade tarihine kadar kalan iş gününü sayar; cumartesi ve pazar sayılmaz. */
+function businessDaysUntil(from: Date, due: Date): number {
+  const cursor = startOfUtcDay(from), end = startOfUtcDay(due);
+  let count = 0;
+  while (+cursor < +end) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    const day = cursor.getUTCDay();
+    if (day !== 0 && day !== 6) count += 1;
+  }
+  return count;
+}
+
+function isWithinBusinessDays(from: Date, due: Date, limit = 3): boolean {
+  return +startOfUtcDay(due) >= +startOfUtcDay(from) && businessDaysUntil(from, due) <= limit;
+}
+
+function businessDueLabel(from: Date, due: Date): string {
+  const calendarDays = Math.round((+startOfUtcDay(due) - +startOfUtcDay(from)) / 86400000);
+  if (calendarDays === 0) return "bugün";
+  if (calendarDays === 1) return "yarın";
+  const workDays = businessDaysUntil(from, due);
+  if (due.getUTCDay() === 0 || due.getUTCDay() === 6)
+    return `${workDays} iş günü sonra · hafta sonu`;
+  return `${workDays} iş günü içinde`;
+}
+
 const authStorage = {
   async db() {
     return await new Promise<IDBDatabase>((resolve, reject) => {
@@ -565,8 +595,8 @@ function Dashboard({ session }: { session: Session }) {
 
   const urgentCount = payments.filter((p) => {
     if (checkPaid(p, data, y, m)) return false;
-    const day = effectiveDay(y, m, num(p.odeme_gunu)).getUTCDate();
-    return day <= todayDay + 3;
+    const due = effectiveDay(y, m, num(p.odeme_gunu));
+    return isWithinBusinessDays(now, due, 3);
   }).length;
   async function toggle(p: any, ty = y, tm = m) {
     const d = normalize(data),
@@ -703,21 +733,19 @@ function Dashboard({ session }: { session: Session }) {
         // checkPaid: dışarıda tanımlı, tüm ödeme kontrolleri burayı kullanır
         const overduePayments = payments.filter((p: any) => {
           if (checkPaid(p, data, y, m)) return false;
-          const pd = effectiveDay(y, m, num(p.odeme_gunu)).getUTCDate();
-          return pd < todayD;
+          const due = effectiveDay(y, m, num(p.odeme_gunu));
+          return +startOfUtcDay(due) < +startOfUtcDay(now);
         });
         const upcomingPayments = payments.filter((p: any) => {
           if (checkPaid(p, data, y, m)) return false;
-          const pd = effectiveDay(y, m, num(p.odeme_gunu)).getUTCDate();
-          return pd >= todayD && pd <= todayD + 3;
+          return isWithinBusinessDays(now, effectiveDay(y, m, num(p.odeme_gunu)), 3);
         });
         if (overduePayments.length > 0 && !dismissedAlerts.has("overdue"))
           alerts.push({ key: "overdue", msg: `${overduePayments.length} ödemeniz gecikmiş: ${overduePayments.map((p: any) => p.ad).join(", ")}`, type: "danger" });
         if (upcomingPayments.length > 0 && !dismissedAlerts.has("upcoming")) {
           const upcomingMsg = upcomingPayments.map((p: any) => {
-            const pd = effectiveDay(y, m, num(p.odeme_gunu)).getUTCDate();
-            const diff = pd - todayD;
-            const label = diff === 0 ? "bugün" : diff === 1 ? "yarın" : `${diff} gün içinde`;
+            const due = effectiveDay(y, m, num(p.odeme_gunu));
+            const label = businessDueLabel(now, due);
             return `${p.ad} (${label})`;
           }).join(", ");
           alerts.push({ key: "upcoming", msg: `Yaklaşan ödeme: ${upcomingMsg}`, type: "warn" });
@@ -969,14 +997,15 @@ function Payments({
           paid = recordedPaid || (p.kart_borc_odeme && remainingAmount <= 0.01);
         // Satır rengi: sadece bu ay için hesapla (geçmiş/gelecek ay → renksiz)
         const isCurrentMonth = now != null && displayY === now.getUTCFullYear() && displayM === now.getUTCMonth() + 1;
-        const payDay = isCurrentMonth ? effectiveDay(displayY, displayM, num(p.odeme_gunu)).getUTCDate() : null;
-        const todayD = isCurrentMonth && now ? now.getUTCDate() : null;
+        const payDate = isCurrentMonth ? effectiveDay(displayY, displayM, num(p.odeme_gunu)) : null;
+        const overdue = payDate && now ? +startOfUtcDay(payDate) < +startOfUtcDay(now) : false;
+        const upcoming = payDate && now ? isWithinBusinessDays(now, payDate, 3) : false;
         const rowClass = paid
           ? "payment paid"
-          : payDay !== null && todayD !== null
-            ? payDay < todayD
+          : payDate !== null && now !== null
+            ? overdue
               ? "payment overdue"
-              : payDay <= todayD + 3
+              : upcoming
                 ? "payment upcoming"
                 : "payment"
             : "payment";
