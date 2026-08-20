@@ -7,7 +7,6 @@ import {
   activeWeeklySummary,
   cardReductionAdvice,
   cardStatementInterest,
-  freshWeeklySummary,
   BudgetData,
   dateToIso,
   effectiveDay,
@@ -215,7 +214,26 @@ function mergeChanged(base: any, next: any, latest: any): any {
   return structuredClone(next);
 }
 
-function Monthly({ month }: { month: any }) {
+function Monthly({ data, now }: { data: BudgetData; now: Date }) {
+  const [selected, setSelected] = useState(() => ({
+      y: now.getUTCFullYear(),
+      m: now.getUTCMonth() + 1,
+    })),
+    month = monthlySpendingSummary(
+      data,
+      new Date(Date.UTC(selected.y, selected.m - 1, 15)),
+    ),
+    planStart = new Date(`${String(data.butce_plani.butce_baslangic_tarihi).slice(0, 10)}T00:00:00Z`),
+    minMonth = isNaN(+planStart)
+      ? { y: now.getUTCFullYear(), m: now.getUTCMonth() + 1 }
+      : { y: planStart.getUTCFullYear(), m: planStart.getUTCMonth() + 1 },
+    currentMonth = { y: now.getUTCFullYear(), m: now.getUTCMonth() + 1 },
+    atMin = selected.y === minMonth.y && selected.m === minMonth.m,
+    atCurrent = selected.y === currentMonth.y && selected.m === currentMonth.m;
+  function moveMonth(delta: number) {
+    const d = new Date(Date.UTC(selected.y, selected.m - 1 + delta, 1));
+    setSelected({ y: d.getUTCFullYear(), m: d.getUTCMonth() + 1 });
+  }
   const r = month.totalRemaining,
     end = new Date(Date.UTC(month.y, month.m, 0)),
     periodFormatter = new Intl.DateTimeFormat("tr-TR", {
@@ -242,8 +260,13 @@ function Monthly({ month }: { month: any }) {
           </p>
         </div>
       </div>
+      <div className="monthNavigator monthlyNavigator">
+        <button className="secondary" onClick={() => moveMonth(-1)} disabled={atMin}>◀ Önceki ay</button>
+        <strong>{trMonth([selected.y, selected.m])}</strong>
+        <button className="secondary" onClick={() => moveMonth(1)} disabled={atCurrent}>Sonraki ay ▶</button>
+      </div>
       <Meter l="Kart" v={month.spent.kart} max={month.goal.kart} />
-      <Meter l="Nakit / KMH" v={month.spent.nakit} max={month.goal.nakit} />
+      <Meter l="Nakit harcama" v={month.spent.nakit} max={month.goal.nakit} />
       <div className={r >= 0 ? "weekTotal good" : "weekTotal bad"}>
         <span>{r >= 0 ? "Yaşam harcaması hedefi korunuyor" : "Yaşam harcaması hedefi aşıldı"}</span>
         <b>{r >= 0 ? `${trMoney(r)} kalan` : `${trMoney(Math.abs(r))} aşım`}</b>
@@ -596,7 +619,6 @@ function Dashboard({ session }: { session: Session }) {
   const y = now.getUTCFullYear(),
     m = now.getUTCMonth() + 1,
     live = liveFinancial(data, data.guncel_durum, now),
-    income = incomeStatus(data, data.guncel_durum, now),
     plan = exitDates(data, now),
     current =
       plan.rows.find((x: any) => x.yil === y && x.ay === m) || plan.rows.at(-1),
@@ -606,9 +628,6 @@ function Dashboard({ session }: { session: Session }) {
       data.haftalik_hedefler.kart,
     ),
     week = activeWeeklySummary(data, now),
-    // Özet ekranı: Pazar ise yarını baz al, harcamalar sıfır, kalan günlere göre hedef
-    weekDisplayDate = now.getUTCDay() === 0 ? new Date(+now + 86400000) : now,
-    freshWeek = freshWeeklySummary(data, weekDisplayDate),
     carry = weeklyCarryAdjustment(data, week.start),
     month = monthlySpendingSummary(data, now),
     savings = weeklySavings(data),
@@ -616,18 +635,14 @@ function Dashboard({ session }: { session: Session }) {
     anchorMonth = String(data.guncel_durum.tarih || "").slice(0, 7),
     currentMonthKey = dateToIso(now).slice(0, 7),
     needsMonthSync = !!anchorMonth && anchorMonth !== currentMonthKey,
-    visibleRows = plan.rows.filter(
-      (r: any) => r.yil > y || (r.yil === y && r.ay >= m),
-    ),
     payments = data.odemeler
       .filter((p) => activeInMonth(p, y, m))
-      .sort((a, b) => num(a.odeme_gunu) - num(b.odeme_gunu)),
-    todayDay = now.getUTCDate();
+      .sort((a, b) => num(a.odeme_gunu) - num(b.odeme_gunu));
 
   /** Bir ödemenin belirtilen ay/yıl için ödenip ödenmediğini kontrol eder.
    *  odendi_kayitlari VE kart_kademeli_odemeler toplamını dikkate alır. */
   function checkPaid(p: any, d: BudgetData, ty: number, tm: number): boolean {
-    if (!!d.odendi_kayitlari[paymentKey(ty, tm, p.id)]) return true;
+    if (d.odendi_kayitlari[paymentKey(ty, tm, p.id)]) return true;
     if (p.kart_borc_odeme) {
       const staged = (d.kart_kademeli_odemeler || [])
         .filter((s: any) => Number(s.odeme_id) === Number(p.id) && Number(s.yil) === ty && Number(s.ay) === tm)
@@ -734,27 +749,27 @@ function Dashboard({ session }: { session: Session }) {
         <div className="heroStats">
           <article className="heroStatPair">
             <div>
-              <small>{savings >= 0 ? "Nakit hedefinden kalan" : "Nakit hedefi aşımı"}</small>
+              <small>{savings >= 0 ? "Birikimli nakit hedefi farkı" : "Birikimli nakit hedefi aşımı"}</small>
               <strong className={savings >= 0 ? "good" : "bad"}>{trMoney(Math.abs(savings))}</strong>
             </div>
             <div>
-              <small>{cardSavings >= 0 ? "Kart hedefinden kalan" : "Kart hedefi aşımı"}</small>
+              <small>{cardSavings >= 0 ? "Birikimli kart hedefi farkı" : "Birikimli kart hedefi aşımı"}</small>
               <strong className={cardSavings >= 0 ? "good" : "bad"}>{trMoney(Math.abs(cardSavings))}</strong>
             </div>
           </article>
           <article>
-            <small>Takvim ve girişlere göre KMH</small>
+            <small>Kayıtlar sonrası hesaplanan KMH</small>
             <strong className={live.garanti_bakiye < 0 ? "bad" : "good"}>{live.garanti_bakiye < 0 && <span className="meaningIcon" aria-label="Eksi bakiye">!</span>}{trMoney(live.garanti_bakiye)}</strong>
           </article>
           <article>
-            <small>Toplam kart borcu</small>
+            <small>Kayıtlar sonrası hesaplanan kart borcu</small>
             <strong className={live.yk_toplam_borc > 0 ? "bad" : "good"}>{trMoney(live.yk_toplam_borc)}</strong>
           </article>
         </div>
       </section> : <section className="compactSummary" aria-label="Bütçe özeti">
         <span>KMH hedefi <b>{trMonth(plan.kmh)}</b></span>
-        <span className={live.garanti_bakiye < 0 ? "bad" : "good"}>{live.garanti_bakiye < 0 && <span className="meaningIcon" aria-hidden="true">!</span>} KMH {trMoney(live.garanti_bakiye)}</span>
-        <span>Kart borcu <b>{trMoney(live.yk_toplam_borc)}</b></span>
+        <span className={live.garanti_bakiye < 0 ? "bad" : "good"}>{live.garanti_bakiye < 0 && <span className="meaningIcon" aria-hidden="true">!</span>} Hesaplanan KMH {trMoney(live.garanti_bakiye)}</span>
+        <span>Hesaplanan kart borcu <b>{trMoney(live.yk_toplam_borc)}</b></span>
       </section>}
       {needsMonthSync && (
         <button className="monthWarning" onClick={() => setTab("ayarlar")}>
@@ -768,7 +783,8 @@ function Dashboard({ session }: { session: Session }) {
       )}
       {(() => {
         const alerts: { key: string; msg: string; type: "info" | "warn" | "danger"; action?: boolean }[] = [];
-        const weekOver = week.spent.kart + week.spent.nakit > (freshWeek.goal.kart + freshWeek.goal.nakit);
+        const usableWeekGoal = adjustedGoals(week, carry);
+        const weekOver = week.spent.kart + week.spent.nakit > (usableWeekGoal.kart + usableWeekGoal.nakit);
         if (weekOver && !dismissedAlerts.has("week-over"))
           alerts.push({ key: "week-over", msg: "Bu haftanın harcama hedefi aşıldı.", type: "danger" });
         const monthOver = month.totalSpent > (month.goal.kart + month.goal.nakit);
@@ -778,7 +794,6 @@ function Dashboard({ session }: { session: Session }) {
         const todayD = now.getUTCDate();
         const maasGunleri = (data.guncel_durum.gelir_parcalari || []).map((g: any) => num(g.gun));
         const bugunMaasGunu = maasGunleri.includes(todayD);
-        const fotografGunu = String(data.guncel_durum.tarih || "").slice(8, 10);
         const fotografBugün = String(data.guncel_durum.tarih || "").slice(0, 10) === dateToIso(now);
         if (bugunMaasGunu && !fotografBugün && !dismissedAlerts.has("maas-fotograf"))
           alerts.push({ key: "maas-fotograf", msg: `Bugün maaş günü (${todayD}. gün)! Bankadan KMH bakiyenizi güncelleyin — Güncelle sekmesi.`, type: "warn" });
@@ -836,7 +851,7 @@ function Dashboard({ session }: { session: Session }) {
           <div className="layout">
           <Payments
             data={data}
-            rows={payments.slice(0, 8)}
+            rows={payments}
             y={y}
             m={m}
             toggle={toggle}
@@ -858,7 +873,7 @@ function Dashboard({ session }: { session: Session }) {
                 v={trMoney(live.yk_kullanilabilir)}
               />
               <Row
-                l="Kartı azaltacak ek ödeme"
+                l="Hedefe göre kartı azaltacak tahmini ek ödeme"
                 v={trMoney(cardAdvice.paymentNow)}
               />
             </section>
@@ -876,8 +891,6 @@ function Dashboard({ session }: { session: Session }) {
             toggle={toggle}
             save={save}
             edit
-            planRows={visibleRows}
-            live={live}
             now={now}
           />
         </div>
@@ -886,15 +899,13 @@ function Dashboard({ session }: { session: Session }) {
         <Weekly
           data={data}
           week={week}
-          freshWeek={freshWeek}
           carry={carry}
           savings={savings}
-          now={now}
           save={save}
         />
       )}{" "}
       {tab === "aylik" && (
-        <Monthly month={month} />
+        <Monthly data={data} now={now} />
       )}{" "}
       {tab === "ayarlar" && <Update data={data} now={now} save={save} notice={notice} />}
     </main>
@@ -910,8 +921,6 @@ function Payments({
   save,
   edit = false,
   footerAction,
-  planRows,
-  live,
   now,
 }: {
   data: BudgetData;
@@ -922,8 +931,6 @@ function Payments({
   save: Save;
   edit?: boolean;
   footerAction?: { label: string; onClick: () => void };
-  planRows?: any[];
-  live?: any;
   now?: Date;
 }) {
   const [form, setForm] = useState<any>(),
@@ -937,11 +944,6 @@ function Payments({
         activeInMonth(p, navYear, navMonth)
       )
     : rows;
-
-  // seçili aya ait projeksiyon satırı
-  const projRow = planRows?.find(
-    (r: any) => r.yil === navYear && r.ay === navMonth
-  );
 
   // U5: Ay navigasyonu sınırı — 3 ay geri, 12 ay ileri
   const [minY, minM] = (() => {
@@ -1025,7 +1027,23 @@ function Payments({
       {edit && (() => {
         const navDate = new Date(Date.UTC(displayY, displayM - 1, 15));
         const mSummary = monthlySpendingSummary(data, navDate);
-        const toplamOdeme = activeRows.reduce((s: number, p: any) => s + paymentAmount(data, p, displayY, displayM), 0);
+        const paymentTotals = activeRows.reduce((totals: { paid: number; pending: number }, p: any) => {
+          const planned = paymentAmount(data, p, displayY, displayM),
+            paymentKeyForRow = paymentKey(displayY, displayM, p.id),
+            recorded = !!data.odendi_kayitlari[paymentKeyForRow],
+            realized = data.gerceklesen_odemeler[paymentKeyForRow],
+            staged = p.kart_borc_odeme
+              ? data.kart_kademeli_odemeler
+                  .filter((x: any) => Number(x.yil) === displayY && Number(x.ay) === displayM && Number(x.odeme_id) === Number(p.id))
+                  .reduce((sum: number, x: any) => sum + num(x.tutar), 0)
+              : 0;
+          if (recorded) totals.paid += Math.max(0, num(realized?.tutar, planned));
+          else {
+            totals.paid += Math.min(planned, staged);
+            totals.pending += Math.max(0, planned - staged);
+          }
+          return totals;
+        }, { paid: 0, pending: 0 });
         const kartKalan = mSummary.goal.kart - mSummary.spent.kart;
         const nakitKalan = mSummary.goal.nakit - mSummary.spent.nakit;
         return (
@@ -1044,7 +1062,8 @@ function Payments({
               <b className={nakitKalan < 0 ? "bad" : "good"}>{trMoney(nakitKalan)}</b>
               <small> kalan</small>
             </span>
-            <span>Ödemeler <b>{trMoney(toplamOdeme)}</b></span>
+            <span>Ödenen <b className="good">{trMoney(paymentTotals.paid)}</b></span>
+            <span>Bekleyen <b className={paymentTotals.pending > 0 ? "bad" : "good"}>{trMoney(paymentTotals.pending)}</b></span>
           </div>
         );
       })()}
@@ -1119,7 +1138,9 @@ function Payments({
               </div>
             )}
             {edit && (
-              <span className="payActions">
+              <details className="rowMenu">
+                <summary aria-label={`${p.ad} ödeme işlemleri`}>•••</summary>
+                <span className="payActions">
                 <button
                   className="ghost"
                   onClick={() =>
@@ -1134,7 +1155,8 @@ function Payments({
                 <button className="danger" onClick={() => del(p)}>
                   Sil
                 </button>
-              </span>
+                </span>
+              </details>
             )}
           </article>
         );
@@ -1147,6 +1169,7 @@ function Payments({
       )}
       {form && (
         <PaymentForm
+          key={form.id}
           p={form}
           set={setForm}
           cancel={() => setForm(null)}
@@ -1177,10 +1200,10 @@ function Payments({
         />
       )}
       {confirmDel && (
-        <div className="modalOverlay" onClick={() => setConfirmDel(null)}>
-          <div className="modalBox" onClick={(e) => e.stopPropagation()}>
+        <div className="modalOverlay">
+          <div className="modalBox" role="dialog" aria-modal="true" aria-labelledby="deletePaymentTitle">
             <div className="modalHeader">
-              <h3>Ödemeyi sil</h3>
+              <h3 id="deletePaymentTitle">Ödemeyi sil</h3>
               <button className="ghost" onClick={() => setConfirmDel(null)}>✕</button>
             </div>
             <p style={{ margin: "0 0 20px", color: "var(--muted)" }}>
@@ -1212,16 +1235,6 @@ function PaymentForm({
   const [rawTutar, setRawTutar] = useState(String(p.tutar ?? 0));
   const [rawGun, setRawGun] = useState(String(p.odeme_gunu ?? ""));
   const [rawTaksit, setRawTaksit] = useState(String(p.taksit_sayisi ?? ""));
-
-  // Sync raw states when p changes externally
-  const prevP = useRef(p);
-  if (prevP.current !== p) {
-    prevP.current = p;
-    setRawBuAy(String(p.bu_ay_tutar ?? p.tutar ?? 0));
-    setRawTutar(String(p.tutar ?? 0));
-    setRawGun(String(p.odeme_gunu ?? ""));
-    setRawTaksit(String(p.taksit_sayisi ?? ""));
-  }
 
   function parseNum(s: string) {
     const n = Number(s.replace(",", "."));
@@ -1514,35 +1527,27 @@ function WeekBox({
 function Weekly({
   data,
   week,
-  freshWeek,
   carry,
   savings,
-  now,
   save,
 }: {
   data: BudgetData;
   week: any;
-  freshWeek: any;
   carry: any;
   savings: number;
-  now: Date;
   save: Save;
 }) {
   const [editingId, setEditingId] = useState<number | null>(null),
     [editDraft, setEditDraft] = useState<{ tutar: string; aciklama: string }>({ tutar: "", aciklama: "" });
-  const wk = dateToIso(week.start),
-    goals = adjustedGoals(week, carry),
+  const goals = adjustedGoals(week, carry),
+    baseCardGoal = num(data.haftalik_hedefler.kart),
+    cardReserved = Math.max(0, baseCardGoal - goals.kart),
     groupedRecords = Object.entries(
       week.records.reduce((groups: Record<string, any[]>, record: any) => {
         (groups[record.tarih] ||= []).push(record);
         return groups;
       }, {}),
-    ).sort(([a], [b]) => b.localeCompare(a)),
-    closedToday = Object.values(data.haftalik_kapanislar || {}).some(
-      (x: any) =>
-        String(x.kapanis_tarihi || x.kapanma_zamani || "").slice(0, 10) ===
-        dateToIso(now),
-    );
+    ).sort(([a], [b]) => b.localeCompare(a));
   function remove(r: any) {
     const d = normalize(data);
     d.haftalik_harcamalar = d.haftalik_harcamalar.filter((x) => x.id !== r.id);
@@ -1567,41 +1572,28 @@ function Weekly({
     setEditingId(null);
     setEditDraft({ tutar: "", aciklama: "" });
   }
-  function close() {
-    if (closedToday) {
-      alert(
-        "Bugün zaten bir takip haftası kapattınız. Yeni takip haftasını yarın kapatabilirsiniz.",
-      );
-      return;
-    }
-    const d = normalize(data);
-    d.haftalik_kapanislar[wk] = {
-      baslangic: wk,
-      bitis: dateToIso(week.end),
-      kart: week.spent.kart,
-      nakit: week.spent.nakit,
-      kapanma_zamani: new Date().toISOString(),
-      kapanis_tarihi: dateToIso(now),
-    };
-    save(d, "Hafta kapatıldı; yeni takip haftası açıldı");
-  }
   return (
     <div className="weeklyPage single">
       <section className="panel weekly">
         <div className="panelTitle noPad">
           <div>
             <h2>Bu haftanın harcama detayı</h2>
-            <p>{dateToIso(week.start)} – {dateToIso(week.end)}</p>
+            <p>{fmtShortDate(week.start)} – {fmtShortDate(week.end)}</p>
           </div>
           <span className="badge amber">Açık</span>
         </div>
         <div className="weekSummaryBar">
-          <span>Kart <b>{trMoney(week.spent.kart)}</b> / {trMoney(freshWeek.goal.kart)}</span>
-          <span>Nakit <b>{trMoney(week.spent.nakit)}</b> / {trMoney(freshWeek.goal.nakit)}</span>
+          <span>Kart <b>{trMoney(week.spent.kart)}</b> / {trMoney(goals.kart)}</span>
+          <span>Nakit <b>{trMoney(week.spent.nakit)}</b> / {trMoney(goals.nakit)}</span>
           <span className={savings >= 0 ? "good" : "bad"}>
-            {savings >= 0 ? "Nakit hedefinden kalan" : "Nakit hedefi aşımı"} <b>{trMoney(Math.abs(savings))}</b>
+            {savings >= 0 ? "Birikimli nakit hedefi farkı" : "Birikimli nakit hedefi aşımı"} <b>{trMoney(Math.abs(savings))}</b>
           </span>
         </div>
+        {cardReserved > 0.01 && (
+          <p className="goalExplanation">
+            Ana kart hedefi {trMoney(baseCardGoal)} · sabit kart ödemelerine ayrılan {trMoney(cardReserved)} · bu hafta kullanılabilir {trMoney(goals.kart)}
+          </p>
+        )}
         <div className="recordList">
           {groupedRecords.map(([date, records]) => <section className="recordDay" key={date}>
             <h3>
@@ -1628,7 +1620,6 @@ function Weekly({
                       if (e.key === "Enter") commitEdit(r);
                       if (e.key === "Escape") cancelEdit();
                     }}
-                    autoFocus
                   />
                   <input
                     className="inlineEdit"
@@ -1647,8 +1638,13 @@ function Weekly({
               ) : (
                 <>
                   <strong>{trMoney(r.tutar)}</strong>
-                  <button className="ghost" onClick={() => startEdit(r)}>Düzenle</button>
-                  <button className="danger" onClick={() => remove(r)}>Sil</button>
+                  <details className="rowMenu">
+                    <summary aria-label={`${r.aciklama || "Harcama"} işlemleri`}>•••</summary>
+                    <span className="payActions">
+                      <button className="ghost" onClick={() => startEdit(r)}>Düzenle</button>
+                      <button className="danger" onClick={() => remove(r)}>Sil</button>
+                    </span>
+                  </details>
                 </>
               )}
             </article>
@@ -1790,7 +1786,7 @@ function Update({
   return (
     <div className="single updateGrid">
       <details className="panel updatePanel" open>
-        <summary><span className="uiIcon" aria-hidden="true">₺</span><span><b>Garanti / KMH bakiyesi</b><small>Yeni bakiye: {trMoney(g.garanti_bakiye)}</small></span></summary>
+        <summary><span className="uiIcon" aria-hidden="true">₺</span><span><b>Garanti / KMH bakiyesi</b><small>Bankadan girilen bakiye: {trMoney(g.garanti_bakiye)}</small></span></summary>
         <div className="updatePanelBody">
         <div className="formGrid">
           <Field
@@ -1827,7 +1823,7 @@ function Update({
       </details>
 
       <details className="panel updatePanel">
-        <summary><span className="uiIcon" aria-hidden="true">K</span><span><b>Yapı Kredi kart durumu</b><small>{trMoney(kart.yk_toplam_borc)} borç</small></span></summary>
+        <summary><span className="uiIcon" aria-hidden="true">K</span><span><b>Yapı Kredi kart durumu</b><small>Bankadan girilen borç: {trMoney(kart.yk_toplam_borc)}</small></span></summary>
         <div className="updatePanelBody">
         <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 12px" }}>
           Kart limiti projeksiyon hesabını, toplam borç canlı kart faizini etkiler.
@@ -1938,31 +1934,20 @@ function Update({
   );
 }
 function Field({ l, v, set }: { l: string; v: any; set: (n: number) => void }) {
-  const [raw, setRaw] = useState(trMoney(v));
-  useEffect(() => setRaw(trMoney(v)), [v]);
-  function handleChange(str: string) {
-    // Türkçe virgülü noktaya çevir ama yazarken raw'ı koru
-    setRaw(str);
-  }
-  function handleBlur() {
-    // Blur'da sayıya çevir: virgül → nokta
-    const n = parseTrMoney(raw);
-    if (n !== null) {
-      set(n);
-      setRaw(trMoney(n));
-    } else {
-      setRaw(trMoney(v));
-    }
+  function handleBlur(input: HTMLInputElement) {
+    const parsed = parseTrMoney(input.value);
+    if (parsed !== null) set(parsed);
+    input.value = trMoney(parsed ?? v);
   }
   return (
     <label>
       {l}
       <input
+        key={`${l}-${v}`}
         type="text"
         inputMode="decimal"
-        value={raw}
-        onChange={(e) => handleChange(e.target.value)}
-        onBlur={handleBlur}
+        defaultValue={trMoney(v)}
+        onBlur={(e) => handleBlur(e.target)}
         onFocus={(e) => e.target.select()}
       />
     </label>

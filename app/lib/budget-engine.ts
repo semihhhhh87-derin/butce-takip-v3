@@ -219,13 +219,11 @@ export function weeklyGoal(d: BudgetData, start: Date, end: Date) {
   let card = 0;
   if (count) {
     const factor = n(d.butce_plani.haftalik_ay_carpani, 52 / 12),
-      base = n(d.haftalik_hedefler.kart, 6300),
-      anchor = isoDate(d.guncel_durum.tarih);
+      base = n(d.haftalik_hedefler.kart, 6300);
     for (let i = 0; i < count; i++) {
       const day = addDays(effective, i),
         [y, m] = dateParts(day),
-        fixed = cardIncludedPayments(d, y, m),
-        monthlyBase = base * factor;
+        fixed = cardIncludedPayments(d, y, m);
       let other = Math.max(0, base - fixed / Math.max(factor, 0.01));
       // Banka fotoğrafı (anchor) bu ayla örtüşüyorsa:
       // Aylık kreş tutarını fotoğraf tarihinden itibaren kalan TAM hafta sayısına böl.
@@ -709,9 +707,9 @@ export function liveFinancial(
   // Geçen ayın harcama/ödemeleri zaten fotoğraf bakiyesine dahil olduğundan
   // sadece fotoğraftan SONRA oluşturulmuş (olusturma_zamani > start) kayıtlar
   // sayılır — bu zaten `created >= start` koşuluyla sağlanıyor.
-  // useMonth: fotoğraf ayı veya calcDate ayındaki kayıtları kabul et.
+  // appliesToMonth: fotoğraf ayı veya calcDate ayındaki kayıtları kabul et.
   const calcMonth = dateParts(calcDate),
-    useMonth = (em: [number, number]) => {
+    appliesToMonth = (em: [number, number]) => {
       if (!pm) return true;
       if (cmp(em, pm) === 0) return true;          // foto ayı
       if (cmp(pm, calcMonth) < 0)                  // foto geçmiş ay ise
@@ -736,7 +734,7 @@ export function liveFinancial(
   for (const r of d.haftalik_harcamalar) {
     const created = new Date(r.olusturma_zamani || 0),
       rd = isoDate(r.tarih);
-    if (!rd || +created < +start || !useMonth(dateParts(rd)))
+    if (!rd || +created < +start || !appliesToMonth(dateParts(rd)))
       continue;
     const amount = Math.max(0, n(r.tutar));
     if (r.tur === "kart") {
@@ -756,7 +754,7 @@ export function liveFinancial(
     const created = new Date(e.olusturma_zamani || 0),
       parts = k.split("-");
     const em: [number, number] = [n(e.yil, Number(parts[0])), n(e.ay, Number(parts[1]))];
-    if (+created < +start || !useMonth(em)) continue;
+    if (+created < +start || !appliesToMonth(em)) continue;
     const amount = Math.max(0, n(e.tutar));
     if (e.kart_borc_odeme) {
       bank -= amount;
@@ -776,7 +774,7 @@ export function liveFinancial(
     const created = new Date(e.olusturma_zamani || e.tarih || 0),
       em = [n(e.yil), n(e.ay)] as [number, number],
       amount = Math.max(0, n(e.tutar));
-    if (!amount || +created < +start || !useMonth(em)) continue;
+    if (!amount || +created < +start || !appliesToMonth(em)) continue;
     bank -= amount;
     card -= amount;
     available += amount;
