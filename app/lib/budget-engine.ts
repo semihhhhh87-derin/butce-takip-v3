@@ -469,14 +469,24 @@ function monthlyCardSpend(d: BudgetData, y: number, m: number) {
       total += paymentAmount(d, p, y, m);
   return total;
 }
-function cardPaymentInfo(d: BudgetData, y: number, m: number) {
-  const p = d.odemeler.find((x) => x.kart_borc_odeme && activeInMonth(x, y, m));
-  return { p, amount: p ? paymentAmount(d, p, y, m) : 0 };
+function cardPaymentInfos(d: BudgetData, y: number, m: number) {
+  return d.odemeler
+    .filter((p) => p.kart_borc_odeme && activeInMonth(p, y, m))
+    .map((p) => ({ p, amount: paymentAmount(d, p, y, m) }));
 }
-function partialCardPaymentTotal(d: BudgetData, y: number, m: number) {
+export function partialCardPaymentTotal(
+  d: BudgetData,
+  y: number,
+  m: number,
+  paymentId: number | string,
+) {
   return (d.kart_kademeli_odemeler as AnyMap[]).reduce(
     (sum, e) =>
-      n(e.yil) === y && n(e.ay) === m ? sum + Math.max(0, n(e.tutar)) : sum,
+      n(e.yil) === y &&
+      n(e.ay) === m &&
+      String(e.odeme_id) === String(paymentId)
+        ? sum + Math.max(0, n(e.tutar))
+        : sum,
     0,
   );
 }
@@ -497,20 +507,18 @@ function cardMonth(
   opening: number,
   opt: AnyMap = {},
 ) {
-  const info = cardPaymentInfo(d, y, m);
-  const partialPaid = partialCardPaymentTotal(d, y, m);
-  let target = Math.max(0, info.amount),
-    base = target,
-    finalPaid = false;
-  if (info.p) {
-    const k = key(y, m, info.p.id);
-    if (d.odendi_kayitlari[k]) {
-      finalPaid = true;
-      if (opt.realizedPaymentInLive) target = 0;
-      else target = Math.max(0, n(d.gerceklesen_odemeler[k]?.tutar, target));
-    }
-  }
-  if (partialPaid > 0 && opt.realizedPaymentInLive) target = 0;
+  const infos = cardPaymentInfos(d, y, m),
+    base = infos.reduce((sum, info) => sum + Math.max(0, info.amount), 0),
+    target = infos.reduce((sum, info) => {
+      const k = key(y, m, info.p.id),
+        planned = Math.max(0, info.amount);
+      if (d.odendi_kayitlari[k])
+        return sum + (opt.realizedPaymentInLive
+          ? 0
+          : Math.max(0, n(d.gerceklesen_odemeler[k]?.tutar, planned)));
+      if (!opt.realizedPaymentInLive) return sum + planned;
+      return sum + Math.max(0, planned - partialCardPaymentTotal(d, y, m, info.p.id));
+    }, 0);
   const rate =
       n(d.ayarlar.kart_akdi_faiz_orani, 0.0375) *
       (1 + n(d.ayarlar.kart_faiz_vergi_orani, 0.3)),
@@ -790,7 +798,7 @@ function currentMonth(
       if (p.kart_borc_odeme) {
         // Kademeli ödenenler düşülmüş gerçek kalan tutarı kullan
         const plannedAmt = paymentAmount(d, p, y, m);
-        const alreadyPaid = partialCardPaymentTotal(d, y, m);
+        const alreadyPaid = partialCardPaymentTotal(d, y, m, p.id);
         payments += Math.max(0, plannedAmt - alreadyPaid);
       } else {
         payments += paymentAmount(d, p, y, m);
