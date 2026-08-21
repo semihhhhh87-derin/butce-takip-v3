@@ -1184,6 +1184,9 @@ function Payments({
             const currentAmount = num(form.bu_ay_tutar),
               clean = { ...form };
             delete clean.bu_ay_tutar;
+            // Faturalar son bilinen tutarla projekte edilir: bu ay girilen değer,
+            // daha sonraki bir ayda yeni değer girilene kadar geçerli kalır.
+            if (clean.tur === "fatura") clean.tutar = currentAmount;
             if (i < 0) {
               clean.tutar = num(clean.tutar || currentAmount);
               d.odemeler.push(clean);
@@ -1194,10 +1197,12 @@ function Payments({
               d.odemeler[i] = clean;
               d.aylik_tutar_override[paymentKey(displayY, displayM, clean.id)] =
                 currentAmount;
-              const [ny, nm] = nextMonth(displayY, displayM),
-                nextKey = paymentKey(ny, nm, clean.id);
-              if (!(nextKey in d.aylik_tutar_override))
-                d.aylik_tutar_override[nextKey] = num(clean.tutar);
+              if (clean.tur !== "fatura") {
+                const [ny, nm] = nextMonth(displayY, displayM),
+                  nextKey = paymentKey(ny, nm, clean.id);
+                if (!(nextKey in d.aylik_tutar_override))
+                  d.aylik_tutar_override[nextKey] = num(clean.tutar);
+              }
             }
             save(d, "Ödeme kaydedildi");
             setForm(null);
@@ -1298,7 +1303,11 @@ function PaymentForm({
           </select>
         </label>
         <label>
-          {p.tur === "taksit" ? "Taksit tutarı" : "Bu ayın tutarı"}
+          {p.tur === "taksit"
+            ? "Taksit tutarı"
+            : p.tur === "fatura"
+              ? "Bu aydan itibaren tutar"
+              : "Bu ayın tutarı"}
           <input
             type="text"
             inputMode="decimal"
@@ -1307,14 +1316,14 @@ function PaymentForm({
             onBlur={() => {
               const v = parseNum(rawBuAy);
               setRawBuAy(String(v));
-              set(p.tur === "taksit"
+              set(p.tur === "taksit" || p.tur === "fatura"
                 ? { ...p, tutar: v, bu_ay_tutar: v }
                 : { ...p, bu_ay_tutar: v });
             }}
             onFocus={(e) => e.target.select()}
           />
         </label>
-        {p.tur !== "taksit" && (
+        {p.tur !== "taksit" && p.tur !== "fatura" && (
           <label>
             Sonraki ayların normal tutarı
             <input
