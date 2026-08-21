@@ -1262,6 +1262,10 @@ aside {
     grid-column: 2 / -1;
     justify-self: end;
   }
+  .rowMenu[open] .payActions button {
+    min-width: 44px;
+    min-height: 44px;
+  }
   .toast {
     top: auto;
     right: 12px;
