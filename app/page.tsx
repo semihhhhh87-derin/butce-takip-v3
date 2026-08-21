@@ -7,6 +7,7 @@ import {
   activeWeeklySummary,
   cardReductionAdvice,
   cardStatementInterest,
+  carriesForwardPaymentAmount,
   BudgetData,
   dateToIso,
   effectiveDay,
@@ -1186,7 +1187,7 @@ function Payments({
             delete clean.bu_ay_tutar;
             // Faturalar son bilinen tutarla projekte edilir: bu ay girilen değer,
             // daha sonraki bir ayda yeni değer girilene kadar geçerli kalır.
-            if (clean.tur === "fatura") clean.tutar = currentAmount;
+            if (carriesForwardPaymentAmount(clean)) clean.tutar = currentAmount;
             if (i < 0) {
               clean.tutar = num(clean.tutar || currentAmount);
               d.odemeler.push(clean);
@@ -1197,7 +1198,7 @@ function Payments({
               d.odemeler[i] = clean;
               d.aylik_tutar_override[paymentKey(displayY, displayM, clean.id)] =
                 currentAmount;
-              if (clean.tur !== "fatura") {
+              if (!carriesForwardPaymentAmount(clean)) {
                 const [ny, nm] = nextMonth(displayY, displayM),
                   nextKey = paymentKey(ny, nm, clean.id);
                 if (!(nextKey in d.aylik_tutar_override))
@@ -1305,7 +1306,7 @@ function PaymentForm({
         <label>
           {p.tur === "taksit"
             ? "Taksit tutarı"
-            : p.tur === "fatura"
+            : carriesForwardPaymentAmount(p)
               ? "Bu aydan itibaren tutar"
               : "Bu ayın tutarı"}
           <input
@@ -1316,14 +1317,14 @@ function PaymentForm({
             onBlur={() => {
               const v = parseNum(rawBuAy);
               setRawBuAy(String(v));
-              set(p.tur === "taksit" || p.tur === "fatura"
+              set(p.tur === "taksit" || carriesForwardPaymentAmount(p)
                 ? { ...p, tutar: v, bu_ay_tutar: v }
                 : { ...p, bu_ay_tutar: v });
             }}
             onFocus={(e) => e.target.select()}
           />
         </label>
-        {p.tur !== "taksit" && p.tur !== "fatura" && (
+        {p.tur !== "taksit" && !carriesForwardPaymentAmount(p) && (
           <label>
             Sonraki ayların normal tutarı
             <input

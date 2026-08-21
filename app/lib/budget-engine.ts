@@ -118,6 +118,9 @@ export function activeInMonth(p: AnyMap, y: number, m: number) {
   if (p.bitis_ay && cmp(t, parseMonth(p.bitis_ay)) > 0) return false;
   return true;
 }
+export function carriesForwardPaymentAmount(p: AnyMap) {
+  return p.tur === "fatura" || String(p.ad || "").trim().toLocaleLowerCase("tr-TR") === "aidat";
+}
 export function paymentAmount(d: BudgetData, p: AnyMap, y: number, m: number) {
   const exact = key(y, m, p.id),
     o = d.aylik_tutar_override || {};
