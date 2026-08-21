@@ -642,11 +642,19 @@ function Dashboard({ session }: { session: Session }) {
     return false;
   }
 
-  const urgentCount = payments.filter((p) => {
-    if (checkPaid(p, data, y, m)) return false;
-    const due = effectiveDay(y, m, num(p.odeme_gunu));
-    return isWithinBusinessDays(now, due, 3);
-  }).length;
+  const [nextY, nextM] = nextMonth(y, m),
+    urgentOccurrences = [
+      ...payments.map((p) => ({ p, y, m })),
+      ...data.odemeler
+        .filter((p) => activeInMonth(p, nextY, nextM))
+        .map((p) => ({ p, y: nextY, m: nextM })),
+    ],
+    urgentCount = urgentOccurrences.filter(({ p, y: dueY, m: dueM }) => {
+      if (checkPaid(p, data, dueY, dueM)) return false;
+      const due = effectiveDay(dueY, dueM, num(p.odeme_gunu));
+      const overdueThisMonth = dueY === y && dueM === m && +startOfUtcDay(due) < +startOfUtcDay(now);
+      return overdueThisMonth || isWithinBusinessDays(now, due, 3);
+    }).length;
   async function toggle(p: any, ty = y, tm = m) {
     const d = normalize(data),
       k = paymentKey(ty, tm, p.id),
