@@ -8,6 +8,7 @@ import {
   cardReductionAdvice,
   cardStatementInterest,
   carriesForwardPaymentAmount,
+  clearFuturePaymentOverrides,
   BudgetData,
   dateToIso,
   effectiveDay,
@@ -1187,7 +1188,10 @@ function Payments({
             delete clean.bu_ay_tutar;
             // Faturalar son bilinen tutarla projekte edilir: bu ay girilen değer,
             // daha sonraki bir ayda yeni değer girilene kadar geçerli kalır.
-            if (carriesForwardPaymentAmount(clean)) clean.tutar = currentAmount;
+            if (carriesForwardPaymentAmount(clean)) {
+              clean.tutar = currentAmount;
+              clearFuturePaymentOverrides(d, clean.id, displayY, displayM);
+            }
             if (i < 0) {
               clean.tutar = num(clean.tutar || currentAmount);
               d.odemeler.push(clean);

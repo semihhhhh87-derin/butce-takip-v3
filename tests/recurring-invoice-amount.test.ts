@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   carriesForwardPaymentAmount,
+  clearFuturePaymentOverrides,
   normalize,
   paymentAmount,
 } from "../app/lib/budget-engine";
@@ -41,4 +42,25 @@ test("faturanın son girilen tutarı yeni bir değişikliğe kadar ileri taşın
   assert.equal(paymentAmount(data, invoice, 2026, 11), 1_500);
   assert.equal(paymentAmount(data, invoice, 2026, 12), 1_700);
   assert.equal(paymentAmount(data, invoice, 2027, 1), 1_700);
+});
+
+test("güncel fatura kaydedilince eski gelecek ay tahminleri temizlenir", () => {
+  const invoiceId = 77;
+  const data = normalize({
+    aylik_tutar_override: {
+      [`2026-07-${invoiceId}`]: 1_400,
+      [`2026-08-${invoiceId}`]: 1_500,
+      [`2026-09-${invoiceId}`]: 1_332,
+      [`2026-10-${invoiceId}`]: 1_600,
+      "2026-09-88": 900,
+    },
+  });
+
+  clearFuturePaymentOverrides(data, invoiceId, 2026, 8);
+
+  assert.deepEqual(data.aylik_tutar_override, {
+    [`2026-07-${invoiceId}`]: 1_400,
+    [`2026-08-${invoiceId}`]: 1_500,
+    "2026-09-88": 900,
+  });
 });
