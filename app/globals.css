@@ -1230,6 +1230,47 @@ aside {
   opacity: 0.88;
 }
 @media (max-width: 820px) {
+  input:not([type="checkbox"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+  .monthNavigator button {
+    min-height: 44px;
+    padding: 10px 9px;
+    touch-action: manipulation;
+  }
+  .rowMenu > summary {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    touch-action: manipulation;
+  }
+  .payment {
+    grid-template-columns: 44px minmax(0, 1fr) auto 44px;
+    gap: 8px;
+    padding: 12px;
+  }
+  .payment .check {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+  .payment > .rowMenu[open] {
+    grid-column: 2 / -1;
+    justify-self: end;
+  }
+  .toast {
+    top: auto;
+    right: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: 12px;
+    width: auto;
+    min-height: 48px;
+    text-align: left;
+  }
   .desktopExpenseForm {
     display: none;
   }

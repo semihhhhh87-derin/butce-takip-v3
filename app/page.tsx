@@ -1486,7 +1486,8 @@ function WeekBox({
   const amountRef = useRef<HTMLInputElement>(null),
     mobileAmountRef = useRef<HTMLInputElement>(null),
     mobileDescRef = useRef<HTMLInputElement>(null),
-    scrollPositionRef = useRef(0);
+    scrollPositionRef = useRef(0),
+    mobileHistoryEntryRef = useRef(false);
 
   useEffect(() => {
     if (!mobileEntryOpen) return;
@@ -1499,6 +1500,12 @@ function WeekBox({
         overflow: body.style.overflow,
       },
       viewport = window.visualViewport,
+      handleBrowserBack = () => {
+        mobileHistoryEntryRef.current = false;
+        setAmount("");
+        setDesc("");
+        setMobileEntryOpen(false);
+      },
       updateViewport = () => {
         document.documentElement.style.setProperty(
           "--expense-viewport-height",
@@ -1516,11 +1523,13 @@ function WeekBox({
     body.style.overflow = "hidden";
     viewport?.addEventListener("resize", updateViewport);
     viewport?.addEventListener("scroll", updateViewport);
+    window.addEventListener("popstate", handleBrowserBack);
     const focusTimer = window.setTimeout(() => mobileAmountRef.current?.focus(), 120);
     return () => {
       window.clearTimeout(focusTimer);
       viewport?.removeEventListener("resize", updateViewport);
       viewport?.removeEventListener("scroll", updateViewport);
+      window.removeEventListener("popstate", handleBrowserBack);
       document.documentElement.style.removeProperty("--expense-viewport-height");
       document.documentElement.style.removeProperty("--expense-viewport-top");
       body.style.position = previous.position;
@@ -1546,9 +1555,25 @@ function WeekBox({
   }
 
   function openMobileEntry() {
+    if (mobileEntryOpen) return;
     const remembered = window.localStorage.getItem("butce-son-harcama-turu");
     if (remembered === "kart" || remembered === "nakit") setType(remembered);
+    window.history.pushState(
+      { ...(window.history.state || {}), butceHarcamaGir: true },
+      "",
+    );
+    mobileHistoryEntryRef.current = true;
     setMobileEntryOpen(true);
+  }
+
+  function closeMobileEntry() {
+    setAmount("");
+    setDesc("");
+    setMobileEntryOpen(false);
+    if (mobileHistoryEntryRef.current) {
+      mobileHistoryEntryRef.current = false;
+      window.history.back();
+    }
   }
 
   async function add(closeMobile = false) {
@@ -1574,7 +1599,7 @@ function WeekBox({
     setAmount("");
     setDesc("");
     setSavingExpense(false);
-    if (closeMobile) setMobileEntryOpen(false);
+    if (closeMobile) closeMobileEntry();
   }
 
   return (
@@ -1632,7 +1657,7 @@ function WeekBox({
           aria-labelledby="mobileExpenseTitle"
         >
           <header className="mobileExpenseHeader">
-            <button onClick={() => setMobileEntryOpen(false)} disabled={savingExpense}>
+            <button onClick={closeMobileEntry} disabled={savingExpense}>
               ← Vazgeç
             </button>
             <h2 id="mobileExpenseTitle">Harcama gir</h2>
