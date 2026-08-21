@@ -119,7 +119,16 @@ export function activeInMonth(p: AnyMap, y: number, m: number) {
   return true;
 }
 export function carriesForwardPaymentAmount(p: AnyMap) {
-  return p.tur === "fatura" || String(p.ad || "").trim().toLocaleLowerCase("tr-TR") === "aidat";
+  const name = String(p.ad || "").trim().toLocaleLowerCase("tr-TR");
+  return p.tur === "fatura" || new Set([
+    "aidat",
+    "doğalgaz",
+    "dogalgaz",
+    "elektrik",
+    "su",
+    "cep telefonu",
+    "internet",
+  ]).has(name);
 }
 export function clearFuturePaymentOverrides(
   d: BudgetData,

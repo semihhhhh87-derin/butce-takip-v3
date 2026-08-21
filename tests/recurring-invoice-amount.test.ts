@@ -11,6 +11,11 @@ test("faturalar ve aidat ileri taşınan ödeme türleridir", () => {
   assert.equal(carriesForwardPaymentAmount({ ad: "Elektrik", tur: "fatura" }), true);
   assert.equal(carriesForwardPaymentAmount({ ad: "Aidat", tur: "diger" }), true);
   assert.equal(carriesForwardPaymentAmount({ ad: "AİDAT", tur: "diger" }), true);
+  assert.equal(carriesForwardPaymentAmount({ ad: "Doğalgaz", tur: "kredi" }), true);
+  assert.equal(carriesForwardPaymentAmount({ ad: "Elektrik", tur: "kredi" }), true);
+  assert.equal(carriesForwardPaymentAmount({ ad: "Su", tur: "kredi" }), true);
+  assert.equal(carriesForwardPaymentAmount({ ad: "Cep Telefonu", tur: "kredi" }), true);
+  assert.equal(carriesForwardPaymentAmount({ ad: "İnternet", tur: "kredi" }), true);
   assert.equal(carriesForwardPaymentAmount({ ad: "Garanti Kredisi", tur: "kredi" }), false);
   assert.equal(carriesForwardPaymentAmount({ ad: "Kreş", tur: "taksit" }), false);
 });
