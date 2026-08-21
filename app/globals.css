@@ -82,6 +82,7 @@ input {
   color: #b9c3d2;
   font-size: 13px;
 }
+.syncTextMobile { display: none; }
 .compactSummary {
   max-width: 1440px;
   margin: 0 auto;
@@ -498,11 +499,17 @@ aside {
     white-space: nowrap;
   }
   .sync {
-    font-size: 0;
+    display: flex;
+    align-items: center;
+    font-size: 11px;
+    white-space: nowrap;
   }
+  .syncText { display: none; }
+  .syncTextMobile { display: inline; }
   .sync i {
-    margin: 0;
+    margin-right: 5px;
   }
+  .sync button { font-size: 12px; padding: 6px 8px; margin-left: 6px; }
   .hero {
     padding: 22px 18px;
     display: block;

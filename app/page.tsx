@@ -215,8 +215,11 @@ function Monthly({ data, now }: { data: BudgetData; now: Date }) {
       ? { y: now.getUTCFullYear(), m: now.getUTCMonth() + 1 }
       : { y: planStart.getUTCFullYear(), m: planStart.getUTCMonth() + 1 },
     currentMonth = { y: now.getUTCFullYear(), m: now.getUTCMonth() + 1 },
+    maxMonthDate = new Date(Date.UTC(currentMonth.y, currentMonth.m - 1 + 12, 1)),
+    maxMonth = { y: maxMonthDate.getUTCFullYear(), m: maxMonthDate.getUTCMonth() + 1 },
     atMin = selected.y === minMonth.y && selected.m === minMonth.m,
-    atCurrent = selected.y === currentMonth.y && selected.m === currentMonth.m;
+    atMax = selected.y === maxMonth.y && selected.m === maxMonth.m,
+    isFuture = selected.y > currentMonth.y || (selected.y === currentMonth.y && selected.m > currentMonth.m);
   function moveMonth(delta: number) {
     const d = new Date(Date.UTC(selected.y, selected.m - 1 + delta, 1));
     setSelected({ y: d.getUTCFullYear(), m: d.getUTCMonth() + 1 });
@@ -240,7 +243,7 @@ function Monthly({ data, now }: { data: BudgetData; now: Date }) {
     <section className="panel single monthlyPage">
       <div className="panelTitle">
         <div>
-          <h2>Aylık harcama hedefi</h2>
+          <h2>Aylık harcama hedefi {isFuture && <span className="badge amber">Tahmini plan</span>}</h2>
           <p>
             {startLabel} – {endLabel} · {month.days} günlük
             hedef
@@ -250,13 +253,13 @@ function Monthly({ data, now }: { data: BudgetData; now: Date }) {
       <div className="monthNavigator monthlyNavigator">
         <button className="secondary" onClick={() => moveMonth(-1)} disabled={atMin}>◀ Önceki ay</button>
         <strong>{trMonth([selected.y, selected.m])}</strong>
-        <button className="secondary" onClick={() => moveMonth(1)} disabled={atCurrent}>Sonraki ay ▶</button>
+        <button className="secondary" onClick={() => moveMonth(1)} disabled={atMax}>Sonraki ay ▶</button>
       </div>
-      <Meter l="Kart" v={month.spent.kart} max={month.goal.kart} />
-      <Meter l="Nakit harcama" v={month.spent.nakit} max={month.goal.nakit} />
-      <div className={r >= 0 ? "weekTotal good" : "weekTotal bad"}>
-        <span>{r >= 0 ? "Yaşam harcaması hedefi korunuyor" : "Yaşam harcaması hedefi aşıldı"}</span>
-        <b>{r >= 0 ? `${trMoney(r)} kalan` : `${trMoney(Math.abs(r))} aşım`}</b>
+      <Meter l="Kart" v={month.spent.kart} max={month.goal.kart} planned={isFuture} />
+      <Meter l="Nakit harcama" v={month.spent.nakit} max={month.goal.nakit} planned={isFuture} />
+      <div className={isFuture || r >= 0 ? "weekTotal good" : "weekTotal bad"}>
+        <span>{isFuture ? "Toplam planlanan kullanılabilir hedef" : r >= 0 ? "Yaşam harcaması hedefi korunuyor" : "Yaşam harcaması hedefi aşıldı"}</span>
+        <b>{isFuture ? trMoney(month.totalGoal) : r >= 0 ? `${trMoney(r)} kalan` : `${trMoney(Math.abs(r))} aşım`}</b>
       </div>
       {month.fixedCard > 0 && (
         <div className="monthlyBreakdown">
@@ -266,9 +269,9 @@ function Monthly({ data, now }: { data: BudgetData; now: Date }) {
         </div>
       )}
       <p className="monthlyHelp">
-        Bu tutar hesap bakiyesi değildir; yalnız yaşam harcaması hedefinden
-        kalan payı gösterir. Krediler, kart borcu ödemesi ve kart hedefinden
-        ayrılmayan diğer sabit ödemeler bu hedefe dahil değildir.
+        {isFuture
+          ? "Bu ekran gerçekleşen harcamayı değil, seçili ay için mevcut hedef ve ödeme planına göre hesaplanan tahmini kullanılabilir bütçeyi gösterir."
+          : "Bu tutar hesap bakiyesi değildir; yalnız yaşam harcaması hedefinden kalan payı gösterir. Krediler, kart borcu ödemesi ve kart hedefinden ayrılmayan diğer sabit ödemeler bu hedefe dahil değildir."}
       </p>
     </section>
   );
@@ -654,7 +657,12 @@ function Dashboard({ session }: { session: Session }) {
       const due = effectiveDay(dueY, dueM, num(p.odeme_gunu));
       const overdueThisMonth = dueY === y && dueM === m && +startOfUtcDay(due) < +startOfUtcDay(now);
       return overdueThisMonth || isWithinBusinessDays(now, due, 3);
-    }).length;
+    }).length,
+    syncTime = lastSyncAt
+      ? new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Istanbul" }).format(lastSyncAt)
+      : "",
+    syncLabel = sync === "Güncel" ? (syncTime ? `Son senkronizasyon: ${syncTime}` : "Güncel") : sync,
+    syncMobileLabel = sync === "Güncel" ? (syncTime ? `Güncel ${syncTime}` : "Güncel") : sync;
   async function toggle(p: any, ty = y, tm = m) {
     const d = normalize(data),
       k = paymentKey(ty, tm, p.id),
@@ -717,11 +725,8 @@ function Dashboard({ session }: { session: Session }) {
         </nav>
         <div className="sync" role="status">
           <i className={sync === "Kaydediliyor" ? "syncing" : sync === "Bağlantı hatası" ? "syncErr" : ""} />
-          {sync === "Güncel"
-            ? lastSyncAt
-              ? `Son senkronizasyon: ${new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Istanbul" }).format(lastSyncAt)}`
-              : "Güncel"
-            : sync}
+          <span className="syncText">{syncLabel}</span>
+          <span className="syncTextMobile">{syncMobileLabel}</span>
           <button onClick={() => supabase.auth.signOut()}>Çıkış</button>
         </div>
       </header>
@@ -798,30 +803,30 @@ function Dashboard({ session }: { session: Session }) {
         if (bugunMaasGunu && !fotografBugün && !dismissedAlerts.has("maas-fotograf"))
           alerts.push({ key: "maas-fotograf", msg: `Bugün maaş günü (${todayD}. gün)! Bankadan KMH bakiyenizi güncelleyin — Güncelle sekmesi.`, type: "warn" });
         // checkPaid: dışarıda tanımlı, tüm ödeme kontrolleri burayı kullanır
-        const overduePayments = payments.filter((p: any) => {
-          if (checkPaid(p, data, y, m)) return false;
-          const due = effectiveDay(y, m, num(p.odeme_gunu));
+        const overduePayments = urgentOccurrences.filter(({ p, y: dueY, m: dueM }) => {
+          if (checkPaid(p, data, dueY, dueM)) return false;
+          const due = effectiveDay(dueY, dueM, num(p.odeme_gunu));
           return +startOfUtcDay(due) < +startOfUtcDay(now);
         });
-        const upcomingPayments = payments.filter((p: any) => {
-          if (checkPaid(p, data, y, m)) return false;
-          return isWithinBusinessDays(now, effectiveDay(y, m, num(p.odeme_gunu)), 3);
+        const upcomingPayments = urgentOccurrences.filter(({ p, y: dueY, m: dueM }) => {
+          if (checkPaid(p, data, dueY, dueM)) return false;
+          return isWithinBusinessDays(now, effectiveDay(dueY, dueM, num(p.odeme_gunu)), 3);
         });
         if (overduePayments.length > 0 && !dismissedAlerts.has("overdue"))
-          alerts.push({ key: "overdue", msg: `${overduePayments.length} ödemeniz gecikmiş: ${overduePayments.map((p: any) => p.ad).join(", ")}`, type: "danger" });
+          alerts.push({ key: "overdue", msg: `${overduePayments.length} ödemeniz gecikmiş: ${overduePayments.map(({ p }) => p.ad).join(", ")}`, type: "danger" });
         if (upcomingPayments.length > 0 && !dismissedAlerts.has("upcoming")) {
-          const minWorkDays = Math.min(...upcomingPayments.map((p: any) => businessDaysUntil(now, effectiveDay(y, m, num(p.odeme_gunu)))));
-          const upcomingTotal = upcomingPayments.reduce((sum: number, p: any) => {
-            const planned = paymentAmount(data, p, y, m);
+          const minWorkDays = Math.min(...upcomingPayments.map(({ p, y: dueY, m: dueM }) => businessDaysUntil(now, effectiveDay(dueY, dueM, num(p.odeme_gunu)))));
+          const upcomingTotal = upcomingPayments.reduce((sum: number, { p, y: dueY, m: dueM }) => {
+            const planned = paymentAmount(data, p, dueY, dueM);
             const staged = p.kart_borc_odeme ? (data.kart_kademeli_odemeler || [])
-              .filter((x: any) => Number(x.odeme_id) === Number(p.id) && Number(x.yil) === y && Number(x.ay) === m)
+              .filter((x: any) => Number(x.odeme_id) === Number(p.id) && Number(x.yil) === dueY && Number(x.ay) === dueM)
               .reduce((s: number, x: any) => s + num(x.tutar), 0) : 0;
             return sum + Math.max(0, planned - staged);
           }, 0);
-          const upcomingMsg = upcomingPayments.map((p: any) => {
-            const due = effectiveDay(y, m, num(p.odeme_gunu));
+          const upcomingMsg = upcomingPayments.map(({ p, y: dueY, m: dueM }) => {
+            const due = effectiveDay(dueY, dueM, num(p.odeme_gunu));
             const label = businessDueLabel(now, due);
-            return `${p.ad} (${label})`;
+            return `${p.ad} (${fmtShortDate(due)} · ${label})`;
           }).join(", ");
           alerts.push({
             key: "upcoming",
@@ -1995,7 +2000,7 @@ function DateField({ l, v, set }: { l: string; v: any; set: (s: string) => void 
     </label>
   );
 }
-function Meter({ l, v, max, color }: { l: string; v: number; max: number; color?: "purple" | "green" }) {
+function Meter({ l, v, max, color, planned = false }: { l: string; v: number; max: number; color?: "purple" | "green"; planned?: boolean }) {
   const p = max ? Math.min(100, Math.max(0, (v / max) * 100)) : 0;
   const kalan = max - v;
   const barClass = v > max ? "over" : p >= 80 ? "warn" : "";
@@ -2014,13 +2019,11 @@ function Meter({ l, v, max, color }: { l: string; v: number; max: number; color?
       <div>
         <b>{l}</b>
         <span className="meterStats">
-          <span>{trMoney(v)} harcandı</span>
-          <span className="meterDot">·</span>
-          <span>{trMoney(max)} limit</span>
-          <span className="meterDot">·</span>
-          <b className={kalan < 0 ? "bad" : ""}>
-            {kalan < 0 ? `${trMoney(Math.abs(kalan))} aşım` : `${trMoney(kalan)} kalan`}
-          </b>
+          {planned ? (
+            <><span>Henüz harcama yok</span><span className="meterDot">·</span><b>Planlanan kullanılabilir hedef {trMoney(max)}</b></>
+          ) : (
+            <><span>{trMoney(v)} harcandı</span><span className="meterDot">·</span><span>{trMoney(max)} limit</span><span className="meterDot">·</span><b className={kalan < 0 ? "bad" : ""}>{kalan < 0 ? `${trMoney(Math.abs(kalan))} aşım` : `${trMoney(kalan)} kalan`}</b></>
+          )}
         </span>
       </div>
       <em>
