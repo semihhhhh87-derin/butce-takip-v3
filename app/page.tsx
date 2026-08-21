@@ -155,7 +155,7 @@ const shiftIsoDate = (value: string, days: number) => {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 };
-type Save = (d: BudgetData, m?: string) => void;
+type Save = (d: BudgetData, m?: string) => Promise<void>;
 
 function parseTrMoney(value: string): number | null {
   const clean = value.replace(/\s/g, "").replace(/TL|₺/gi, "");
@@ -1480,10 +1480,56 @@ function WeekBox({
 }) {
   const [type, setType] = useState<"kart" | "nakit">("kart"),
     [amount, setAmount] = useState(""),
-    [desc, setDesc] = useState("");
-  const amountRef = useRef<HTMLInputElement>(null);
+    [desc, setDesc] = useState(""),
+    [mobileEntryOpen, setMobileEntryOpen] = useState(false),
+    [savingExpense, setSavingExpense] = useState(false);
+  const amountRef = useRef<HTMLInputElement>(null),
+    mobileAmountRef = useRef<HTMLInputElement>(null),
+    mobileDescRef = useRef<HTMLInputElement>(null),
+    scrollPositionRef = useRef(0);
 
-  useEffect(() => { amountRef.current?.focus(); }, []);
+  useEffect(() => {
+    if (!mobileEntryOpen) return;
+    scrollPositionRef.current = window.scrollY;
+    const body = document.body,
+      previous = {
+        position: body.style.position,
+        top: body.style.top,
+        width: body.style.width,
+        overflow: body.style.overflow,
+      },
+      viewport = window.visualViewport,
+      updateViewport = () => {
+        document.documentElement.style.setProperty(
+          "--expense-viewport-height",
+          `${viewport?.height || window.innerHeight}px`,
+        );
+        document.documentElement.style.setProperty(
+          "--expense-viewport-top",
+          `${viewport?.offsetTop || 0}px`,
+        );
+      };
+    updateViewport();
+    body.style.position = "fixed";
+    body.style.top = `-${scrollPositionRef.current}px`;
+    body.style.width = "100%";
+    body.style.overflow = "hidden";
+    viewport?.addEventListener("resize", updateViewport);
+    viewport?.addEventListener("scroll", updateViewport);
+    const focusTimer = window.setTimeout(() => mobileAmountRef.current?.focus(), 120);
+    return () => {
+      window.clearTimeout(focusTimer);
+      viewport?.removeEventListener("resize", updateViewport);
+      viewport?.removeEventListener("scroll", updateViewport);
+      document.documentElement.style.removeProperty("--expense-viewport-height");
+      document.documentElement.style.removeProperty("--expense-viewport-top");
+      body.style.position = previous.position;
+      body.style.top = previous.top;
+      body.style.width = previous.width;
+      body.style.overflow = previous.overflow;
+      window.scrollTo(0, scrollPositionRef.current);
+    };
+  }, [mobileEntryOpen]);
 
   const g = adjustedGoals(week, carry),
     r = g.kart + g.nakit - week.spent.kart - week.spent.nakit,
@@ -1496,12 +1542,19 @@ function WeekBox({
 
   function selectType(t: "kart" | "nakit") {
     setType(t);
-    setTimeout(() => amountRef.current?.focus(), 0);
+    window.localStorage.setItem("butce-son-harcama-turu", t);
   }
 
-  function add() {
+  function openMobileEntry() {
+    const remembered = window.localStorage.getItem("butce-son-harcama-turu");
+    if (remembered === "kart" || remembered === "nakit") setType(remembered);
+    setMobileEntryOpen(true);
+  }
+
+  async function add(closeMobile = false) {
     const v = parseTrMoney(amount) ?? 0;
-    if (v <= 0 || v > 100_000) return;
+    if (v <= 0 || v > 100_000 || savingExpense) return;
+    setSavingExpense(true);
     const d = normalize(data);
     d.haftalik_harcamalar.push({
       id: newId(),
@@ -1512,14 +1565,24 @@ function WeekBox({
       aciklama: desc,
       olusturma_zamani: new Date().toISOString(),
     });
-    save(d, advanced ? "Harcama yeni takip haftasına eklendi" : "Harcama eklendi");
+    await save(
+      d,
+      advanced
+        ? `${trMoney(v)} ${type === "kart" ? "kart" : "nakit"} harcaması yeni takip haftasına eklendi`
+        : `${trMoney(v)} ${type === "kart" ? "kart" : "nakit"} harcaması eklendi`,
+    );
     setAmount("");
     setDesc("");
+    setSavingExpense(false);
+    if (closeMobile) setMobileEntryOpen(false);
   }
 
   return (
     <section className="panel">
-      <div className="inlineExpenseForm">
+      <button className="mobileExpenseLauncher" onClick={openMobileEntry}>
+        <span aria-hidden="true">＋</span> Harcama gir
+      </button>
+      <div className="inlineExpenseForm desktopExpenseForm">
         <p className="inlineExpenseLabel">HARCAMA GİR</p>
         <div className="expenseTypeButtons">
           <button
@@ -1543,7 +1606,7 @@ function WeekBox({
           placeholder="Tutar (₺)"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && add()}
+          onKeyDown={(e) => e.key === "Enter" && void add()}
         />
         <input
           type="text"
@@ -1551,16 +1614,94 @@ function WeekBox({
           placeholder="Açıklama (opsiyonel)"
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && add()}
+          onKeyDown={(e) => e.key === "Enter" && void add()}
         />
         <button
           className="expenseAddBtn"
-          onClick={add}
-          disabled={(parseTrMoney(amount) ?? 0) <= 0}
+          onClick={() => void add()}
+          disabled={(parseTrMoney(amount) ?? 0) <= 0 || savingExpense}
         >
-          Ekle
+          {savingExpense ? "Kaydediliyor…" : "Ekle"}
         </button>
       </div>
+      {mobileEntryOpen && (
+        <div
+          className="mobileExpenseOverlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="mobileExpenseTitle"
+        >
+          <header className="mobileExpenseHeader">
+            <button onClick={() => setMobileEntryOpen(false)} disabled={savingExpense}>
+              ← Vazgeç
+            </button>
+            <h2 id="mobileExpenseTitle">Harcama gir</h2>
+            <span aria-hidden="true" />
+          </header>
+          <div className="mobileExpenseBody">
+            <div className="expenseTypeButtons" aria-label="Harcama türü">
+              <button
+                className={type === "kart" ? "expenseTypeSelected" : "expenseTypeIdle"}
+                onClick={() => selectType("kart")}
+                aria-pressed={type === "kart"}
+              >
+                <span className="uiIcon" aria-hidden="true">K</span> Kart
+              </button>
+              <button
+                className={type === "nakit" ? "expenseTypeSelected" : "expenseTypeIdle"}
+                onClick={() => selectType("nakit")}
+                aria-pressed={type === "nakit"}
+              >
+                <span className="uiIcon" aria-hidden="true">N</span> Nakit
+              </button>
+            </div>
+            <label className="mobileExpenseField">
+              <span>Tutar</span>
+              <input
+                ref={mobileAmountRef}
+                type="text"
+                inputMode="decimal"
+                enterKeyHint="next"
+                placeholder="0,00 TL"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    mobileDescRef.current?.focus();
+                  }
+                }}
+              />
+            </label>
+            <label className="mobileExpenseField">
+              <span>Açıklama <small>(isteğe bağlı)</small></span>
+              <input
+                ref={mobileDescRef}
+                type="text"
+                enterKeyHint="done"
+                placeholder="Örn. Market"
+                value={desc}
+                onChange={(e) => setDesc(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void add(true);
+                  }
+                }}
+              />
+            </label>
+          </div>
+          <footer className="mobileExpenseFooter">
+            <button
+              className="expenseAddBtn"
+              onClick={() => void add(true)}
+              disabled={(parseTrMoney(amount) ?? 0) <= 0 || savingExpense}
+            >
+              {savingExpense ? "Kaydediliyor…" : "Harcamayı kaydet"}
+            </button>
+          </footer>
+        </div>
+      )}
       <div className="panelTitle" style={{ marginTop: 16 }}>
         <div>
           <h2>Bu haftaki limitiniz</h2>
