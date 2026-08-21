@@ -130,6 +130,35 @@ export function carriesForwardPaymentAmount(p: AnyMap) {
     "internet",
   ]).has(name);
 }
+
+export function fillMissingPaymentTypes(payments: AnyMap[]): boolean {
+  const inferred = new Map<string, string>([
+    ["akbank yapılandırma", "kredi"],
+    ["garanti kredisi", "kredi"],
+    ["iş bankası kredisi", "kredi"],
+    ["on bank kredisi", "kredi"],
+    ["eş kredisi", "kredi"],
+    ["yapı kredi kartı", "kart"],
+    ["aidat", "fatura"],
+    ["doğalgaz", "fatura"],
+    ["dogalgaz", "fatura"],
+    ["elektrik", "fatura"],
+    ["su", "fatura"],
+    ["cep telefonu", "fatura"],
+    ["internet", "fatura"],
+    ["kreş", "taksit"],
+  ]);
+  let changed = false;
+  for (const payment of payments || []) {
+    if (String(payment.tur || "").trim()) continue;
+    const name = String(payment.ad || "").trim().toLocaleLowerCase("tr-TR");
+    const type = inferred.get(name);
+    if (!type) continue;
+    payment.tur = type;
+    changed = true;
+  }
+  return changed;
+}
 export function clearFuturePaymentOverrides(
   d: BudgetData,
   paymentId: number,

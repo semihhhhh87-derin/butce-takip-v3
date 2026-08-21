@@ -8,6 +8,7 @@ import {
   cardReductionAdvice,
   cardStatementInterest,
   carriesForwardPaymentAmount,
+  fillMissingPaymentTypes,
   clearFuturePaymentOverrides,
   BudgetData,
   dateToIso,
@@ -536,9 +537,10 @@ function Dashboard({ session }: { session: Session }) {
     // TR_FIX: yalnızca bozuk karakter tespit edilirse çalıştır (her yüklemede gereksiz parse önlenir)
     const needsFix = Object.keys(TR_FIX).some((k) => JSON.stringify(finalData).includes(k));
     const hasBozuk = needsFix ? (() => { const r2 = fixStrings(finalData); if (r2.changed) { finalData = r2.fixed; return true; } return false; })() : false;
-    // Otomatik kapanış veya encoding düzeltme olduysa sessizce kaydet
+    const paymentTypesFixed = fillMissingPaymentTypes(finalData.odemeler);
+    // Otomatik kapanış, encoding veya eski ödeme türü düzeltmesi olduysa sessizce kaydet
     let savedVersion = r.data.version;
-    if ((autoSaved || hasBozuk) && fid) {
+    if ((autoSaved || hasBozuk || paymentTypesFixed) && fid) {
       const persisted = await supabase
         .from("budget_state")
         .update({

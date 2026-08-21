@@ -3,9 +3,26 @@ import test from "node:test";
 import {
   carriesForwardPaymentAmount,
   clearFuturePaymentOverrides,
+  fillMissingPaymentTypes,
   normalize,
   paymentAmount,
 } from "../app/lib/budget-engine";
+
+test("eski boş ödeme türleri adlarına göre güvenle tamamlanır", () => {
+  const payments = [
+    { ad: "Yapı Kredi Kartı", tur: "" },
+    { ad: "Aidat" },
+    { ad: "Garanti Kredisi", tur: "kredi" },
+    { ad: "Bilinmeyen ödeme" },
+  ];
+
+  assert.equal(fillMissingPaymentTypes(payments), true);
+  assert.equal(payments[0].tur, "kart");
+  assert.equal(payments[1].tur, "fatura");
+  assert.equal(payments[2].tur, "kredi");
+  assert.equal(payments[3].tur, undefined);
+  assert.equal(fillMissingPaymentTypes(payments), false);
+});
 
 test("faturalar ve aidat ileri taşınan ödeme türleridir", () => {
   assert.equal(carriesForwardPaymentAmount({ ad: "Elektrik", tur: "fatura" }), true);
