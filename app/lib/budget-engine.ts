@@ -375,15 +375,35 @@ export function monthlySpendingSummary(d: BudgetData, target: Date) {
     monthEnd = new Date(Date.UTC(y, m - 1, daysInMonth(y, m))),
     effective =
       plan && +plan > +monthStart && +plan <= +monthEnd ? plan : monthStart;
+  const closures = Object.values(d.haftalik_kapanislar || {}) as AnyMap[];
   for (const r of d.haftalik_harcamalar) {
     const rd = isoDate(r.tarih);
+    const coveredByClosure = closures.some((c) => {
+      const s = isoDate(c.baslangic), e = isoDate(c.bitis);
+      if (!s || !e || !rd) return false;
+      return String(r.butce_haftasi || "") === dateIso(s) || (+rd >= +s && +rd <= +e);
+    });
     if (
       rd &&
+      !coveredByClosure &&
       +rd >= +effective &&
       cmp(dateParts(rd), [y, m]) === 0 &&
       (r.tur === "kart" || r.tur === "nakit")
     )
       (spent as Record<string, number>)[r.tur as string] += Math.max(0, n(r.tutar));
+  }
+  for (const c of closures) {
+    const s = isoDate(c.baslangic), e = isoDate(c.bitis);
+    if (!s || !e) continue;
+    const { effective: weekEffective } = weeklyGoal(d, s, e),
+      overlapStart = new Date(Math.max(+weekEffective, +effective)),
+      overlapEnd = new Date(Math.min(+e, +monthEnd));
+    if (+overlapStart > +overlapEnd) continue;
+    const weekDays = Math.max(1, Math.round((+e - +weekEffective) / 86400000) + 1),
+      overlapDays = Math.round((+overlapEnd - +overlapStart) / 86400000) + 1,
+      share = overlapDays / weekDays;
+    spent.kart += Math.max(0, n(c.kart)) * share;
+    spent.nakit += Math.max(0, n(c.nakit)) * share;
   }
   const days = Math.max(0, Math.round((+monthEnd - +effective) / 86400000) + 1),
     ratio = days / daysInMonth(y, m),

@@ -1138,7 +1138,7 @@ function Payments({
                   onClick={() =>
                     setForm({
                       ...p,
-                      bu_ay_tutar: paymentAmount(data, p, y, m),
+                      bu_ay_tutar: paymentAmount(data, p, displayY, displayM),
                     })
                   }
                 >
@@ -1175,13 +1175,13 @@ function Payments({
               clean.tutar = num(clean.tutar || currentAmount);
               d.odemeler.push(clean);
               if (currentAmount !== num(clean.tutar))
-                d.aylik_tutar_override[paymentKey(y, m, clean.id)] =
+                d.aylik_tutar_override[paymentKey(displayY, displayM, clean.id)] =
                   currentAmount;
             } else {
               d.odemeler[i] = clean;
-              d.aylik_tutar_override[paymentKey(y, m, clean.id)] =
+              d.aylik_tutar_override[paymentKey(displayY, displayM, clean.id)] =
                 currentAmount;
-              const [ny, nm] = nextMonth(y, m),
+              const [ny, nm] = nextMonth(displayY, displayM),
                 nextKey = paymentKey(ny, nm, clean.id);
               if (!(nextKey in d.aylik_tutar_override))
                 d.aylik_tutar_override[nextKey] = num(clean.tutar);
@@ -1229,8 +1229,7 @@ function PaymentForm({
   const [rawTaksit, setRawTaksit] = useState(String(p.taksit_sayisi ?? ""));
 
   function parseNum(s: string) {
-    const n = Number(s.replace(",", "."));
-    return Number.isFinite(n) ? n : 0;
+    return parseTrMoney(s) ?? 0;
   }
 
   // taksit sayısından bitis_ay hesapla
@@ -1439,7 +1438,7 @@ function WeekBox({
   }
 
   function add() {
-    const v = num(amount);
+    const v = parseTrMoney(amount) ?? 0;
     if (v <= 0 || v > 100_000) return;
     const d = normalize(data);
     d.haftalik_harcamalar.push({
@@ -1495,7 +1494,7 @@ function WeekBox({
         <button
           className="expenseAddBtn"
           onClick={add}
-          disabled={num(amount) <= 0}
+          disabled={(parseTrMoney(amount) ?? 0) <= 0}
         >
           Ekle
         </button>
@@ -1541,7 +1540,8 @@ function Weekly({
   save: Save;
 }) {
   const [editingId, setEditingId] = useState<number | null>(null),
-    [editDraft, setEditDraft] = useState<{ tutar: string; aciklama: string }>({ tutar: "", aciklama: "" });
+    [editDraft, setEditDraft] = useState<{ tutar: string; aciklama: string }>({ tutar: "", aciklama: "" }),
+    [confirmDelete, setConfirmDelete] = useState<any>(null);
   const goals = adjustedGoals(week, carry),
     baseCardGoal = num(data.haftalik_hedefler.kart),
     fixedCardReserved = Math.max(0, baseCardGoal - week.goal.kart),
@@ -1552,17 +1552,19 @@ function Weekly({
         return groups;
       }, {}),
     ).sort(([a], [b]) => b.localeCompare(a));
-  function remove(r: any) {
+  function removeConfirmed() {
+    if (!confirmDelete) return;
     const d = normalize(data);
-    d.haftalik_harcamalar = d.haftalik_harcamalar.filter((x) => x.id !== r.id);
+    d.haftalik_harcamalar = d.haftalik_harcamalar.filter((x) => x.id !== confirmDelete.id);
     save(d, "Harcama silindi");
+    setConfirmDelete(null);
   }
   function startEdit(r: any) {
     setEditingId(r.id);
     setEditDraft({ tutar: String(r.tutar), aciklama: r.aciklama || "" });
   }
   function commitEdit(r: any) {
-    const v = num(editDraft.tutar);
+    const v = parseTrMoney(editDraft.tutar) ?? 0;
     if (v > 0 && v <= 100_000) {
       const d = normalize(data),
         x = d.haftalik_harcamalar.find((q) => q.id === r.id);
@@ -1649,7 +1651,7 @@ function Weekly({
                     <summary aria-label={`${r.aciklama || "Harcama"} işlemleri`}>•••</summary>
                     <span className="payActions">
                       <button className="ghost" onClick={() => startEdit(r)}>Düzenle</button>
-                      <button className="danger" onClick={() => remove(r)}>Sil</button>
+                      <button className="danger" onClick={() => setConfirmDelete(r)}>Sil</button>
                     </span>
                   </details>
                 </>
@@ -1661,6 +1663,23 @@ function Weekly({
             <div className="empty">Bu hafta henüz harcama yok.</div>
           )}
         </div>
+        {confirmDelete && (
+          <div className="modalOverlay">
+            <div className="modalBox" role="dialog" aria-modal="true" aria-labelledby="deleteExpenseTitle">
+              <div className="modalHeader">
+                <h3 id="deleteExpenseTitle">Harcamayı sil</h3>
+                <button className="ghost" onClick={() => setConfirmDelete(null)}>✕</button>
+              </div>
+              <p style={{ margin: "0 0 20px", color: "var(--muted)" }}>
+                <b style={{ color: "var(--ink)" }}>{confirmDelete.aciklama || "Açıklama yok"} · {trMoney(confirmDelete.tutar)}</b> kalıcı olarak silinecek. Emin misiniz?
+              </p>
+              <div className="actions">
+                <button className="danger" onClick={removeConfirmed}>Evet, sil</button>
+                <button className="ghost" onClick={() => setConfirmDelete(null)}>Vazgeç</button>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
     </div>
   );

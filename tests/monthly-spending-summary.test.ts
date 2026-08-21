@@ -50,3 +50,28 @@ test("tam ayda ay içindeki bütün uygun sabit kart ödemeleri ayrılır", () =
   assert.equal(result.days, 31);
   assert.equal(result.fixedCard, 4_817);
 });
+
+test("kapanmış haftanın silinen ayrıntıları aylık toplamda korunur", () => {
+  const d = data();
+  d.haftalik_kapanislar["2026-08-17"] = {
+    baslangic: "2026-08-17",
+    bitis: "2026-08-23",
+    kart: 3_500,
+    nakit: 1_400,
+  };
+  d.haftalik_harcamalar = [];
+  const result = monthlySpendingSummary(d, new Date("2026-08-24T00:00:00Z"));
+  assert.deepEqual(result.spent, { kart: 3_500, nakit: 1_400 });
+});
+
+test("kapanışla birlikte kalan eski ayrıntı iki kez sayılmaz", () => {
+  const d = data();
+  d.haftalik_kapanislar["2026-08-17"] = {
+    baslangic: "2026-08-17",
+    bitis: "2026-08-23",
+    kart: 3_500,
+    nakit: 1_400,
+  };
+  const result = monthlySpendingSummary(d, new Date("2026-08-24T00:00:00Z"));
+  assert.deepEqual(result.spent, { kart: 3_500, nakit: 1_400 });
+});
