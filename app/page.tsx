@@ -459,8 +459,8 @@ function Dashboard({ session }: { session: Session }) {
       const [start, end] = weekRange(cursor);
       const key = dateToIso(start);
       if (+start >= +thisWeekStart) break; // bu hafta veya sonrasına dokunma
+      const ws = weeklySummary(withAuto, cursor);
       if (!withAuto.haftalik_kapanislar[key]) {
-        const ws = weeklySummary(withAuto, cursor);
         withAuto.haftalik_kapanislar[key] = {
           baslangic: key,
           bitis: dateToIso(end),
@@ -471,6 +471,25 @@ function Dashboard({ session }: { session: Session }) {
           otomatik: true,
         };
         autoSaved = true;
+      } else {
+        const closure = withAuto.haftalik_kapanislar[key];
+        // Ayrıntı hâlâ mevcutsa kapanış toplamını onunla doğrula. Eski veya
+        // eksik kapanış kaydı ayrıntıların kaybolmasına neden olmasın.
+        const hasDetails = withAuto.haftalik_harcamalar.some((record: any) => {
+          const t = String(record.tarih || "");
+          const hw = String(record.butce_haftasi || "");
+          return hw === key || (!hw && t >= key && t <= dateToIso(end));
+        });
+        if (
+          hasDetails &&
+          (Math.abs(num(closure.kart) - ws.spent.kart) > 0.01 ||
+            Math.abs(num(closure.nakit) - ws.spent.nakit) > 0.01)
+        ) {
+          closure.kart = ws.spent.kart;
+          closure.nakit = ws.spent.nakit;
+          closure.duzeltme_zamani = new Date().toISOString();
+          autoSaved = true;
+        }
       }
       // Kapalı haftanın bireysel harcama kayıtlarını temizle.
       // Kapanış toplamları haftalik_kapanislar'da saklandığından bu kayıtlar artık gereksiz.
@@ -517,14 +536,10 @@ function Dashboard({ session }: { session: Session }) {
     // TR_FIX: yalnızca bozuk karakter tespit edilirse çalıştır (her yüklemede gereksiz parse önlenir)
     const needsFix = Object.keys(TR_FIX).some((k) => JSON.stringify(finalData).includes(k));
     const hasBozuk = needsFix ? (() => { const r2 = fixStrings(finalData); if (r2.changed) { finalData = r2.fixed; return true; } return false; })() : false;
-    dataRef.current = finalData;
-    versionRef.current = r.data.version;
-    (window as any).__bd__ = finalData;
-    setData(finalData);
-    setSync("Güncel");
     // Otomatik kapanış veya encoding düzeltme olduysa sessizce kaydet
+    let savedVersion = r.data.version;
     if ((autoSaved || hasBozuk) && fid) {
-      await supabase
+      const persisted = await supabase
         .from("budget_state")
         .update({
           payload: finalData,
@@ -533,9 +548,27 @@ function Dashboard({ session }: { session: Session }) {
           updated_by: session.user.id,
         })
         .eq("family_id", fid)
-        .eq("version", r.data.version);
-      versionRef.current = r.data.version + 1;
+        .eq("version", r.data.version)
+        .select("version")
+        .maybeSingle();
+      if (persisted.error || !persisted.data) {
+        // Uzak kayıt doğrulanmadıysa ayrıntıları temizlenmiş yerel kopyayı
+        // kullanma. Sunucudan okunan özgün veri ekranda korunur.
+        dataRef.current = loaded;
+        versionRef.current = r.data.version;
+        (window as any).__bd__ = loaded;
+        setData(loaded);
+        setSync("Bağlantı hatası");
+        setLastSyncAt(new Date());
+        return;
+      }
+      savedVersion = Number(persisted.data.version) || r.data.version + 1;
     }
+    dataRef.current = finalData;
+    versionRef.current = savedVersion;
+    (window as any).__bd__ = finalData;
+    setData(finalData);
+    setSync("Güncel");
     setLastSyncAt(new Date());
   }
   useEffect(() => {
@@ -1647,7 +1680,7 @@ function Weekly({
                   <input
                     className="inlineEdit"
                     type="text"
-                    inputMode="numeric"
+                    inputMode="decimal"
                     placeholder="Tutar"
                     value={editDraft.tutar}
                     onChange={(e) => setEditDraft({ ...editDraft, tutar: e.target.value })}
