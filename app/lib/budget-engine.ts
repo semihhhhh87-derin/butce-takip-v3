@@ -254,9 +254,12 @@ export function scheduledIncomeRemaining(
       0,
     );
 }
-export function monthlyLife(d: BudgetData) {
+export function monthlyLife(d: BudgetData, y?: number, m?: number) {
   const f = n(d.butce_plani.haftalik_ay_carpani, 52 / 12),
-    card = n(d.haftalik_hedefler.kart, 6300) * f,
+    calendarCardFactor = d.butce_plani.kart_sabit_yuk_gercek_gun_dagitimi && y && m
+      ? daysInMonth(y, m) / 7
+      : f,
+    card = n(d.haftalik_hedefler.kart, 6300) * calendarCardFactor,
     cash = n(d.haftalik_hedefler.nakit, 2800) * f;
   return { kart: card, nakit: cash, toplam: card + cash };
 }
@@ -313,7 +316,12 @@ export function weeklyGoal(d: BudgetData, start: Date, end: Date) {
           : null;
       const fixed = cardIncludedPayments(d, y, m, false, monthRef || undefined);
       let other = Math.max(0, base - fixed / Math.max(factor, 0.01));
-      if (monthRef) {
+      if (d.butce_plani.kart_sabit_yuk_gercek_gun_dagitimi) {
+        const allocationDays = monthRef
+          ? Math.max(1, daysInMonth(y, m) - monthRef.getUTCDate() + 1)
+          : daysInMonth(y, m);
+        other = Math.max(0, base - fixed / allocationDays * 7);
+      } else if (monthRef) {
         const remainingDays = Math.max(
           1,
           daysInMonth(y, m) - monthRef.getUTCDate() + 1,
@@ -425,7 +433,7 @@ export function weeklyCarryAdjustment(d: BudgetData, target: Date) {
 export function monthlySpendingSummary(d: BudgetData, target: Date) {
   const [y, m] = dateParts(target),
     spent = { kart: 0, nakit: 0 },
-    base = monthlyLife(d),
+    base = monthlyLife(d, y, m),
     plan = isoDate(d.butce_plani.butce_baslangic_tarihi),
     monthStart = new Date(Date.UTC(y, m - 1, 1)),
     monthEnd = new Date(Date.UTC(y, m - 1, daysInMonth(y, m))),
@@ -559,7 +567,7 @@ function closedWeekDelta(d: BudgetData, y: number, m: number) {
   return out;
 }
 function monthlyCardSpend(d: BudgetData, y: number, m: number) {
-  let total = monthlyLife(d).kart + closedWeekDelta(d, y, m).kart;
+  let total = monthlyLife(d, y, m).kart + closedWeekDelta(d, y, m).kart;
   for (const p of d.odemeler)
     if (
       activeInMonth(p, y, m) &&
