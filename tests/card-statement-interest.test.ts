@@ -49,6 +49,22 @@ test("asgari üzerindeki gerçek ödeme faiz matrahını daha fazla azaltır", (
   assert.equal(extra.minimumMet, true);
 });
 
+test("asgari altında girilen gerçek ödeme sessizce asgariye yükseltilmez", () => {
+  const result = cardStatementInterest({
+    hesap_kesim_tarihi: "2026-08-09",
+    son_odeme_tarihi: "2026-08-19",
+    sonraki_hesap_kesim_tarihi: "2026-09-08",
+    odeme_tarihi: "2026-08-18",
+    donem_borcu: 75_009.78,
+    asgari_tutar: 30_003.91,
+    odenen_tutar: 20_000,
+  });
+
+  assert.equal(result.valid, true);
+  assert.equal(result.minimumMet, false);
+  assert.equal(result.eligibleAfterPayment, 55_009.78);
+});
+
 test("yalnız dört ana alanla tarihler ve kalan borç otomatik tamamlanır", () => {
   const result = cardStatementInterest({
     hesap_kesim_tarihi: "2026-09-08",

@@ -430,7 +430,12 @@ function Dashboard({ session }: { session: Session }) {
     [lastSyncAt, setLastSyncAt] = useState<Date | null>(null),
     [notice, setNotice] = useState(""),
     [now, setNow] = useState(todayUtc()),
-    [closedCardReviewMonth, setClosedCardReviewMonth] = useState(""),
+    [closedCardReviewDate, setClosedCardReviewDate] = useState(() => {
+      try {
+        const today = dateToIso(todayUtc());
+        return localStorage.getItem("card-target-review-dismissed-date") === today ? today : "";
+      } catch { return ""; }
+    }),
     [suggestedCardTarget, setSuggestedCardTarget] = useState<number | null>(null),
     [hasPendingSave, setHasPendingSave] = useState(false),
     [retryingSave, setRetryingSave] = useState(false),
@@ -450,7 +455,9 @@ function Dashboard({ session }: { session: Session }) {
   }
   const versionRef = useRef(0),
     dataRef = useRef<BudgetData | null>(null),
-    retryingSaveRef = useRef(false);
+    retryingSaveRef = useRef(false),
+    pendingSaveRef = useRef(false);
+  useEffect(() => { pendingSaveRef.current = hasPendingSave; }, [hasPendingSave]);
   async function load() {
     setSync("Bağlanıyor");
     let m = await supabase
@@ -663,6 +670,49 @@ function Dashboard({ session }: { session: Session }) {
     window.addEventListener("online", retryWhenOnline);
     return () => window.removeEventListener("online", retryWhenOnline);
   }, [family]);
+  useEffect(() => {
+    if (!family) return;
+    let active = true;
+    const acceptRemote = (payload: any, version: number) => {
+      if (!active || pendingSaveRef.current || version <= versionRef.current) return;
+      const remote = normalize(payload);
+      versionRef.current = version;
+      dataRef.current = remote;
+      (window as any).__bd__ = remote;
+      setData(remote);
+      setSync("Güncel");
+      setLastSyncAt(new Date());
+    };
+    const refreshRemote = async () => {
+      if (document.hidden || pendingSaveRef.current || retryingSaveRef.current) return;
+      const fresh = await supabase
+        .from("budget_state")
+        .select("payload,version")
+        .eq("family_id", family)
+        .single();
+      if (!fresh.error && fresh.data)
+        acceptRemote(fresh.data.payload, Number(fresh.data.version) || 0);
+    };
+    const channel = supabase
+      .channel(`budget-state-${family}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "budget_state", filter: `family_id=eq.${family}` },
+        (event) => acceptRemote(event.new?.payload, Number(event.new?.version) || 0),
+      )
+      .subscribe();
+    const handleVisibility = () => { if (!document.hidden) void refreshRemote(); };
+    window.addEventListener("focus", refreshRemote);
+    document.addEventListener("visibilitychange", handleVisibility);
+    const poll = window.setInterval(() => { if (!document.hidden) void refreshRemote(); }, 30_000);
+    return () => {
+      active = false;
+      window.clearInterval(poll);
+      window.removeEventListener("focus", refreshRemote);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      void supabase.removeChannel(channel);
+    };
+  }, [family]);
   async function retryPendingSave() {
     if (retryingSaveRef.current) return;
     const pending = await readPendingBudgetSave();
@@ -772,8 +822,9 @@ function Dashboard({ session }: { session: Session }) {
     needsMonthSync = !!anchorMonth && anchorMonth !== currentMonthKey,
     cardTargetReview = monthlyCardTargetReview(data, now),
     cardTargetApproved = !!data.kart_hedef_onaylari?.[currentMonthKey],
+    todayKey = dateToIso(now),
     showCardTargetReview = now.getUTCDate() <= 3 &&
-      !cardTargetApproved && closedCardReviewMonth !== currentMonthKey,
+      !cardTargetApproved && closedCardReviewDate !== todayKey,
     currentMonthName = new Intl.DateTimeFormat("tr-TR", {
       month: "long",
       timeZone: "UTC",
@@ -962,20 +1013,25 @@ function Dashboard({ session }: { session: Session }) {
             )}
           </div>
           <span className="alertActions">
-            <button
-              className="alertPrimary"
-              onClick={() => {
-                setSuggestedCardTarget(cardTargetReview.suggestedGrossTarget);
-                setTab("ayarlar");
-              }}
-            >
-              Güncelle →
-            </button>
+            {cardTargetReview.hasTrend && cardTargetReview.suggestedGrossTarget !== null && (
+              <button
+                className="alertPrimary"
+                onClick={() => {
+                  setSuggestedCardTarget(cardTargetReview.suggestedGrossTarget);
+                  setTab("ayarlar");
+                }}
+              >
+                Güncelle →
+              </button>
+            )}
             <button onClick={keepCurrentCardTarget}>Mevcut hedefi koru</button>
             <button
               className="alertClose"
               aria-label="Kart hedefi uyarısını şimdilik kapat"
-              onClick={() => setClosedCardReviewMonth(currentMonthKey)}
+              onClick={() => {
+                setClosedCardReviewDate(todayKey);
+                try { localStorage.setItem("card-target-review-dismissed-date", todayKey); } catch { /* Oturum içi kapatma sürer. */ }
+              }}
             >
               ×
             </button>
@@ -1120,6 +1176,7 @@ function Dashboard({ session }: { session: Session }) {
       )}{" "}
       {tab === "ayarlar" && (
         <Update
+          key={versionRef.current}
           data={data}
           now={now}
           save={save}
@@ -1189,11 +1246,27 @@ function Payments({
   function del(p: any) {
     setConfirmDel(p);
   }
-  function doDelete() {
+  function removePaymentDependencies(d: BudgetData, paymentId: any) {
+    const suffix = `-${paymentId}`;
+    for (const key of Object.keys(d.aylik_tutar_override || {}))
+      if (key.endsWith(suffix)) delete d.aylik_tutar_override[key];
+    for (const key of Object.keys(d.odendi_kayitlari || {}))
+      if (key.endsWith(suffix)) delete d.odendi_kayitlari[key];
+    for (const key of Object.keys(d.gerceklesen_odemeler || {}))
+      if (key.endsWith(suffix)) delete d.gerceklesen_odemeler[key];
+    d.kart_kademeli_odemeler = (d.kart_kademeli_odemeler || [])
+      .filter((item: any) => String(item.odeme_id) !== String(paymentId));
+  }
+  function doDelete(preserveRealized: boolean) {
     if (!confirmDel) return;
     const d = normalize(data);
     d.odemeler = d.odemeler.filter((x) => x.id !== confirmDel.id);
-    save(d, "Ödeme silindi");
+    for (const key of Object.keys(d.aylik_tutar_override || {}))
+      if (key.endsWith(`-${confirmDel.id}`)) delete d.aylik_tutar_override[key];
+    if (!preserveRealized) removePaymentDependencies(d, confirmDel.id);
+    save(d, preserveRealized
+      ? "Ödeme planı kaldırıldı; gerçekleşmiş para hareketleri korundu"
+      : "Ödeme ve bağlı kayıtları silindi");
     setConfirmDel(null);
   }
   const displayY = edit ? navYear : y;
@@ -1256,7 +1329,7 @@ function Payments({
                   .filter((x: any) => Number(x.yil) === displayY && Number(x.ay) === displayM && Number(x.odeme_id) === Number(p.id))
                   .reduce((sum: number, x: any) => sum + num(x.tutar), 0)
               : 0;
-          if (recorded) totals.paid += Math.max(0, num(realized?.tutar, planned));
+          if (recorded) totals.paid += Math.max(0, realized?.tutar == null ? planned : num(realized.tutar));
           else {
             totals.paid += Math.min(planned, staged);
             totals.pending += Math.max(0, planned - staged);
@@ -1434,10 +1507,11 @@ function Payments({
               <button className="ghost" onClick={() => setConfirmDel(null)}>✕</button>
             </div>
             <p style={{ margin: "0 0 20px", color: "var(--muted)" }}>
-              <b style={{ color: "var(--ink)" }}>{confirmDel.ad}</b> kalıcı olarak silinecek. Emin misiniz?
+              <b style={{ color: "var(--ink)" }}>{confirmDel.ad}</b> için gelecek planı kaldırabilirsiniz. Gerçekleşmiş kayıtları da silmek canlı KMH/kart hesabını değiştirebilir.
             </p>
             <div className="actions">
-              <button className="danger" onClick={doDelete}>Evet, sil</button>
+              <button className="ghost" onClick={() => doDelete(true)}>Planı kaldır, geçmişi koru</button>
+              <button className="danger" onClick={() => doDelete(false)}>Her şeyi sil</button>
               <button className="ghost" onClick={() => setConfirmDel(null)}>Vazgeç</button>
             </div>
           </div>
@@ -1463,9 +1537,34 @@ function PaymentForm({
   const [rawGun, setRawGun] = useState(String(p.odeme_gunu ?? ""));
   const [rawTaksit, setRawTaksit] = useState(String(p.taksit_sayisi ?? "")),
     [errors, setErrors] = useState<Record<string, string>>({});
+  const mobileHistoryRef = useRef(false);
 
-  function parseNum(s: string) {
-    return parseTrMoney(s) ?? 0;
+  useEffect(() => {
+    if (!window.matchMedia("(max-width: 820px)").matches) return;
+    const body = document.body,
+      previousOverflow = body.style.overflow,
+      handleBack = () => {
+        mobileHistoryRef.current = false;
+        cancel();
+      };
+    window.history.pushState({ ...(window.history.state || {}), butceOdemeFormu: true }, "");
+    mobileHistoryRef.current = true;
+    body.style.overflow = "hidden";
+    window.addEventListener("popstate", handleBack);
+    return () => {
+      window.removeEventListener("popstate", handleBack);
+      body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  function closeMobileHistory() {
+    if (!mobileHistoryRef.current) return;
+    mobileHistoryRef.current = false;
+    window.history.back();
+  }
+  function cancelForm() {
+    closeMobileHistory();
+    cancel();
   }
 
   // taksit sayısından bitis_ay hesapla
@@ -1530,11 +1629,17 @@ function PaymentForm({
         end = new Date(y, m - 1 + installmentCount - 1);
       clean.bitis_ay = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}`;
     } else delete clean.bitis_ay;
+    closeMobileHistory();
     done(clean);
   }
   return (
-    <div className="editor">
-      <h3>Ödeme bilgisi</h3>
+    <div className="editor paymentEditor" role="dialog" aria-labelledby="paymentEditorTitle">
+      <div className="paymentEditorMobileHeader">
+        <button className="ghost" onClick={cancelForm}>← Vazgeç</button>
+        <h3 id="paymentEditorTitle">Ödeme bilgisi</h3>
+        <span aria-hidden="true" />
+      </div>
+      <h3 className="paymentEditorDesktopTitle">Ödeme bilgisi</h3>
       <div className="formGrid">
         <label>
           Ad
@@ -1571,7 +1676,9 @@ function PaymentForm({
             value={rawBuAy}
             onChange={(e) => setRawBuAy(e.target.value)}
             onBlur={() => {
-              const v = parseNum(rawBuAy);
+              const parsed = parseTrMoney(rawBuAy);
+              if (parsed === null) return;
+              const v = parsed;
               setRawBuAy(String(v));
               set(p.tur === "taksit" || carriesForwardPaymentAmount(p)
                 ? { ...p, tutar: v, bu_ay_tutar: v }
@@ -1592,7 +1699,9 @@ function PaymentForm({
               value={rawTutar}
               onChange={(e) => setRawTutar(e.target.value)}
               onBlur={() => {
-                const v = parseNum(rawTutar);
+                const parsed = parseTrMoney(rawTutar);
+                if (parsed === null) return;
+                const v = parsed;
                 setRawTutar(String(v));
                 set({ ...p, tutar: v });
               }}
@@ -1611,7 +1720,9 @@ function PaymentForm({
             value={rawGun}
             onChange={(e) => setRawGun(e.target.value)}
             onBlur={() => {
-              const v = parseNum(rawGun);
+              const parsed = parseTrMoney(rawGun);
+              if (parsed === null) return;
+              const v = parsed;
               setRawGun(String(v));
               set({ ...p, odeme_gunu: v });
             }}
@@ -1652,7 +1763,9 @@ function PaymentForm({
             onChange={(e) => setRawTaksit(e.target.value)}
             onBlur={() => {
               if (!rawTaksit) { setTaksitSayisi(0); return; }
-              const v = parseNum(rawTaksit);
+              const parsed = parseTrMoney(rawTaksit);
+              if (parsed === null) return;
+              const v = parsed;
               setRawTaksit(v > 0 ? String(v) : "");
               setTaksitSayisi(v);
             }}
@@ -1683,7 +1796,7 @@ function PaymentForm({
         <button className="primary" onClick={submit}>
           Kaydet
         </button>
-        <button className="ghost" onClick={cancel}>
+        <button className="ghost" onClick={cancelForm}>
           Vazgeç
         </button>
       </div>
@@ -2179,12 +2292,18 @@ function Update({
   });
   const [kartHedef, setKartHedef] = useState(num(data.haftalik_hedefler.kart));
   const [nakitHedef, setNakitHedef] = useState(num(data.haftalik_hedefler.nakit));
-  const [maasForm, setMaasForm] = useState<any>(null);
+  const [maasForm, setMaasForm] = useState<any>(null),
+    [updateErrors, setUpdateErrors] = useState<Record<string, string>>({});
   const milatSource = String(data.butce_plani.butce_baslangic_tarihi || "").slice(0, 10);
   const [milatDraft, setMilatDraft] = useState({ source: milatSource, value: milatSource });
   const milatTarihi = milatDraft.source === milatSource ? milatDraft.value : milatSource;
 
   function sync() {
+    if (!Number.isFinite(Number(g.garanti_bakiye))) {
+      setUpdateErrors({ garanti: "KMH bakiyesi geçerli bir tutar olmalıdır." });
+      return;
+    }
+    setUpdateErrors({});
     const d = normalize(data);
     const oldDate = String(d.guncel_durum.tarih || "").slice(0, 7);
     const sameMonth = oldDate === dateToIso(now).slice(0, 7);
@@ -2204,11 +2323,39 @@ function Update({
   }
 
   function saveMilat(tarih: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(tarih)) {
+      setUpdateErrors({ milat: "Geçerli bir başlangıç tarihi seçin." });
+      return;
+    }
+    setUpdateErrors({});
     const d = normalize(data);
     d.butce_plani.butce_baslangic_tarihi = tarih;
     save(d, "Bütçe başlangıç tarihi güncellendi");
   }
   function syncKart() {
+    const debt = num(kart.yk_toplam_borc), available = num(kart.yk_kullanilabilir), limit = num(kart.yk_limit),
+      periodDebt = num(ekstre.donem_borcu), minimum = num(ekstre.asgari_tutar), paid = num(ekstre.odenen_tutar);
+    if (debt < 0 || available < 0 || limit <= 0) {
+      setUpdateErrors({ kart: "Kart borcu ve kullanılabilir limit negatif olamaz; toplam limit sıfırdan büyük olmalıdır." });
+      return;
+    }
+    if (debt + available > limit + 0.01) {
+      setUpdateErrors({ kart: "Kart borcu ile kullanılabilir limit toplamı, kart limitini aşamaz." });
+      return;
+    }
+    if (!ekstre.hesap_kesim_tarihi || periodDebt < 0 || minimum < 0 || paid < 0) {
+      setUpdateErrors({ kart: "Hesap kesim tarihi zorunludur; ekstre tutarları negatif olamaz." });
+      return;
+    }
+    if (minimum > periodDebt) {
+      setUpdateErrors({ kart: "Asgari ödeme dönem borcundan büyük olamaz." });
+      return;
+    }
+    if (paid + 0.005 < minimum) {
+      setUpdateErrors({ kart: "Gerçek ödenen tutar asgari ödeme tutarından az olamaz." });
+      return;
+    }
+    setUpdateErrors({});
     const d = normalize(data);
     const previous = d.guncel_durum.yk_hesap_ozeti;
     if (
@@ -2228,7 +2375,7 @@ function Update({
       yk_guncel_ekstre: faiz.reportedRemaining,
       yk_hesap_ozeti: {
         ...ekstre,
-        odenen_tutar: Math.max(num(ekstre.asgari_tutar), num(ekstre.odenen_tutar)),
+        odenen_tutar: paid,
         akdi_faiz_orani: faiz.contractualRate,
         vergi_orani: faiz.taxRate,
       },
@@ -2248,6 +2395,11 @@ function Update({
     });
   }
   function saveHedefler() {
+    if (!Number.isFinite(kartHedef) || !Number.isFinite(nakitHedef) || kartHedef <= 0 || nakitHedef <= 0) {
+      setUpdateErrors({ hedef: "Haftalık kart ve nakit hedefleri sıfırdan büyük olmalıdır." });
+      return;
+    }
+    setUpdateErrors({});
     const d = normalize(data);
     const kartHedefiDegisti = Math.abs(num(data.haftalik_hedefler.kart) - kartHedef) > 0.005;
     d.haftalik_hedefler.kart = kartHedef;
@@ -2264,6 +2416,11 @@ function Update({
   }
 
   function saveMaas(form: any) {
+    if (!/^\d{4}-\d{2}$/.test(String(form.baslangic_ay || "")) || num(form.tutar) <= 0) {
+      setUpdateErrors({ maas: "Başlangıç ayını seçin ve sıfırdan büyük bir gelir girin." });
+      return;
+    }
+    setUpdateErrors({});
     const d = normalize(data);
     const takvim: any[] = [...(d.ayarlar.maas_takvimi || [])];
     const i = takvim.findIndex((q: any) => q.baslangic_ay === form.baslangic_ay_orig);
@@ -2277,6 +2434,7 @@ function Update({
   }
 
   function delMaas(ay: string) {
+    if (!window.confirm(`${ay} başlangıçlı maaş dönemini silmek istediğinize emin misiniz? KMH tahmini değişebilir.`)) return;
     const d = normalize(data);
     d.ayarlar.maas_takvimi = (d.ayarlar.maas_takvimi || []).filter((q: any) => q.baslangic_ay !== ay);
     save(d, "Maaş takvimi satırı silindi");
@@ -2298,6 +2456,7 @@ function Update({
         <button className="primary" style={{ marginTop: 12 }} onClick={sync}>
           Güncelle
         </button>
+        {updateErrors.garanti && <small className="fieldError formError">{updateErrors.garanti}</small>}
         {notice && <span className="saveFeedback" role="status">✓ {notice}</span>}
         <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 14 }}>
           <label htmlFor="milatInput" style={{ fontSize: "0.8rem", color: "var(--muted)", display: "block", marginBottom: 6 }}>
@@ -2318,6 +2477,7 @@ function Update({
           >
             Kaydet
           </button>
+          {updateErrors.milat && <small className="fieldError formError">{updateErrors.milat}</small>}
         </div>
         </div>
       </details>
@@ -2361,7 +2521,7 @@ function Update({
               <div className={ekstreFaiz.minimumMet && ekstreFaiz.paymentOnTime ? "good" : "bad"}>
                 <b>{ekstreFaiz.minimumMet && ekstreFaiz.paymentOnTime ? "Asgari ödeme zamanında tamamlandı" : "Asgari ödeme eksik veya geç"}</b>
               </div>
-              <span>Hesaba alınan gerçek ödeme <b>{trMoney(Math.max(num(ekstre.asgari_tutar), num(ekstre.odenen_tutar)))}</b></span>
+              <span>Hesaba alınan gerçek ödeme <b>{trMoney(num(ekstre.odenen_tutar))}</b></span>
               <span>Kalan dönem borcu <b>{trMoney(ekstreFaiz.reportedRemaining)}</b></span>
               <span>Tahmini akdi faiz <b>{trMoney(ekstreFaiz.contractualInterest)}</b></span>
               <span>KKDF + BSMV tahmini <b>{trMoney(ekstreFaiz.tax)}</b></span>
@@ -2373,6 +2533,7 @@ function Update({
         <button className="primary" style={{ marginTop: 12 }} onClick={syncKart}>
           Kart ve hesap özetini güncelle
         </button>
+        {updateErrors.kart && <small className="fieldError formError">{updateErrors.kart}</small>}
         {notice && <span className="saveFeedback" role="status">✓ {notice}</span>}
         </div>
       </details>
@@ -2401,6 +2562,7 @@ function Update({
         <button className="primary" style={{ marginTop: 12 }} onClick={saveHedefler}>
           Hedefleri kaydet
         </button>
+        {updateErrors.hedef && <small className="fieldError formError">{updateErrors.hedef}</small>}
         {notice && <span className="saveFeedback" role="status">✓ {notice}</span>}
         </div>
       </details>
@@ -2436,6 +2598,7 @@ function Update({
               <button className="primary" onClick={() => saveMaas(maasForm)}>Kaydet</button>
               <button className="ghost" onClick={() => setMaasForm(null)}>Vazgeç</button>
             </div>
+            {updateErrors.maas && <small className="fieldError formError">{updateErrors.maas}</small>}
           </div>
         )}
         {notice && <span className="saveFeedback" role="status">✓ {notice}</span>}
