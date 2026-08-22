@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { monthlyCardTargetReview, normalize } from "../app/lib/budget-engine";
+import {
+  monthlyCardTargetReview,
+  monthlySpendingSummary,
+  normalize,
+  weeklyGoal,
+} from "../app/lib/budget-engine";
 
 function septemberData() {
   return normalize({
@@ -69,4 +74,20 @@ test("kart kaydı yoksa sabit yük gösterilir ama eğilim uydurulmaz", () => {
   assert.equal(result.freeWeeklyTrend, null);
   assert.equal(result.suggestedGrossTarget, null);
   assert.equal(result.fixedMonthly, 8_152);
+});
+
+test("banner, Haftalık ve Aylık aynı gerçek gün kart limitini üretir", () => {
+  const data = septemberData();
+  const review = monthlyCardTargetReview(data, new Date("2026-09-01T00:00:00Z"));
+  const week = weeklyGoal(
+    data,
+    new Date("2026-09-07T00:00:00Z"),
+    new Date("2026-09-13T00:00:00Z"),
+  );
+  const month = monthlySpendingSummary(data, new Date("2026-09-01T00:00:00Z"));
+  const monthlyAsWeekly = month.goal.kart / month.days * 7;
+
+  assert.equal(Math.round(review.usableWeeklyLimit * 100) / 100, 5_297.87);
+  assert.equal(Math.round(week.goal.kart * 100) / 100, 5_297.87);
+  assert.equal(Math.round(monthlyAsWeekly * 100) / 100, 5_297.87);
 });

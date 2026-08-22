@@ -40,7 +40,7 @@ test("kısmi ay yalnız dönem içindeki sabit kart ödemesini hedefe dahil eder
   assert.equal(result.days, 15);
   assert.equal(result.fixedCard, 3_817);
   assert.deepEqual(result.spent, { kart: 500, nakit: 250 });
-  assert.equal(Math.round(result.goal.kart * 100) / 100, 11_279.77);
+  assert.equal(Math.round(result.goal.kart * 100) / 100, 11_611.57);
 });
 
 test("tam ayda ay içindeki bütün uygun sabit kart ödemeleri ayrılır", () => {

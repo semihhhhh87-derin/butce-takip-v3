@@ -254,9 +254,10 @@ export function scheduledIncomeRemaining(
       0,
     );
 }
-export function monthlyLife(d: BudgetData) {
+export function monthlyLife(d: BudgetData, y?: number, m?: number) {
   const f = n(d.butce_plani.haftalik_ay_carpani, 52 / 12),
-    card = n(d.haftalik_hedefler.kart, 6300) * f,
+    cardFactor = y && m ? daysInMonth(y, m) / 7 : f,
+    card = n(d.haftalik_hedefler.kart, 6300) * cardFactor,
     cash = n(d.haftalik_hedefler.nakit, 2800) * f;
   return { kart: card, nakit: cash, toplam: card + cash };
 }
@@ -296,14 +297,12 @@ export function weeklyGoal(d: BudgetData, start: Date, end: Date) {
     ratio = count / Math.max(1, Math.round((+end - +start) / 86400000) + 1);
   let card = 0;
   if (count) {
-    const factor = n(d.butce_plani.haftalik_ay_carpani, 52 / 12),
-      base = n(d.haftalik_hedefler.kart, 6300);
+    const base = n(d.haftalik_hedefler.kart, 6300);
     for (let i = 0; i < count; i++) {
       const day = addDays(effective, i),
         [y, m] = dateParts(day);
-      // Banka fotoğrafı (anchor) bu ayla örtüşüyorsa:
-      // Aylık kreş tutarını fotoğraf tarihinden itibaren kalan TAM hafta sayısına böl.
-      // Örnek: 17 Ağustos fotoğrafı → 15 gün kaldı → round(15/7)=2 hafta → 8.736/2=4.368 TL
+      // Sabit kart yükünü ayın gerçek günlerine dağıt. Bütçe ay ortasında
+      // başladıysa yalnız başlangıçtan ay sonuna kadar kalan günleri kullan.
       const anchorDate = isoDate(d.guncel_durum.tarih);
       const monthRef =
         anchorDate && cmp(dateParts(anchorDate), [y, m]) === 0
@@ -312,18 +311,11 @@ export function weeklyGoal(d: BudgetData, start: Date, end: Date) {
           ? plan
           : null;
       const fixed = cardIncludedPayments(d, y, m, false, monthRef || undefined);
-      let other = Math.max(0, base - fixed / Math.max(factor, 0.01));
-      if (monthRef) {
-        const remainingDays = Math.max(
-          1,
-          daysInMonth(y, m) - monthRef.getUTCDate() + 1,
-        );
-        if (remainingDays < daysInMonth(y, m)) {
-          const weeksLeft = Math.max(1, Math.round(remainingDays / 7));
-          const weeklyFixed = fixed / weeksLeft;
-          other = Math.max(0, base - weeklyFixed);
-        }
-      }
+      const allocationDays = monthRef
+          ? Math.max(1, daysInMonth(y, m) - monthRef.getUTCDate() + 1)
+          : daysInMonth(y, m),
+        weeklyFixed = fixed / allocationDays * 7,
+        other = Math.max(0, base - weeklyFixed);
       card += other / 7;
     }
   }
@@ -425,7 +417,7 @@ export function weeklyCarryAdjustment(d: BudgetData, target: Date) {
 export function monthlySpendingSummary(d: BudgetData, target: Date) {
   const [y, m] = dateParts(target),
     spent = { kart: 0, nakit: 0 },
-    base = monthlyLife(d),
+    base = monthlyLife(d, y, m),
     plan = isoDate(d.butce_plani.butce_baslangic_tarihi),
     monthStart = new Date(Date.UTC(y, m - 1, 1)),
     monthEnd = new Date(Date.UTC(y, m - 1, daysInMonth(y, m))),
@@ -559,7 +551,7 @@ function closedWeekDelta(d: BudgetData, y: number, m: number) {
   return out;
 }
 function monthlyCardSpend(d: BudgetData, y: number, m: number) {
-  let total = monthlyLife(d).kart + closedWeekDelta(d, y, m).kart;
+  let total = monthlyLife(d, y, m).kart + closedWeekDelta(d, y, m).kart;
   for (const p of d.odemeler)
     if (
       activeInMonth(p, y, m) &&
