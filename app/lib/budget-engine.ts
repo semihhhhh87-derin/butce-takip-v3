@@ -15,6 +15,7 @@ export type BudgetData = AnyMap & {
   gerceklesen_odemeler: AnyMap;
   aylik_ankorlar: AnyMap;
   kart_hesap_ozeti_gecmisi: AnyMap[];
+  kart_hedef_onaylari: AnyMap;
 };
 export const START_YEAR = 2026,
   START_MONTH = 8;
@@ -74,6 +75,7 @@ export function normalize(raw: any): BudgetData {
   obj("gerceklesen_odemeler");
   obj("aylik_ankorlar");
   arr("kart_hesap_ozeti_gecmisi");
+  obj("kart_hedef_onaylari");
   arr("kart_iadesi_gecmisi");
   arr("kart_kademeli_odemeler");
   const closeLegacyRefund = (state: AnyMap) => {
@@ -572,6 +574,75 @@ function cardPaymentInfos(d: BudgetData, y: number, m: number) {
   return d.odemeler
     .filter((p) => p.kart_borc_odeme && activeInMonth(p, y, m))
     .map((p) => ({ p, amount: paymentAmount(d, p, y, m) }));
+}
+
+/**
+ * Ay başındaki kart hedefi kontrolü için iki ayrı kaynağı birleştirir:
+ * - serbest eğilim: yalnız haftalik_harcamalar içindeki Kart kayıtları
+ *   (kapanmış haftalarda aynı kayıtların haftalik_kapanislar kart toplamı),
+ * - sabit yük: yalnız odemeler içindeki kart tavanına dahil ödemeler.
+ */
+export function monthlyCardTargetReview(d: BudgetData, now: Date) {
+  const y = now.getUTCFullYear(), m = now.getUTCMonth() + 1,
+    monthDays = daysInMonth(y, m),
+    periodEnd = new Date(Date.UTC(y, m - 1, 0)),
+    configuredStart = isoDate(d.butce_plani.butce_baslangic_tarihi),
+    fallbackStart = new Date(Date.UTC(START_YEAR, START_MONTH - 1, 17)),
+    periodStart = configuredStart || fallbackStart,
+    closures = Object.values(d.haftalik_kapanislar || {}) as AnyMap[];
+  let freeCardTotal = 0;
+
+  if (+periodStart <= +periodEnd) {
+    for (const record of d.haftalik_harcamalar || []) {
+      if (record.tur !== "kart") continue;
+      const recordDate = isoDate(record.tarih);
+      if (!recordDate || +recordDate < +periodStart || +recordDate > +periodEnd) continue;
+      const coveredByClosure = closures.some((closure) => {
+        const start = isoDate(closure.baslangic), end = isoDate(closure.bitis);
+        if (!start || !end) return false;
+        return String(record.butce_haftasi || "") === dateIso(start) ||
+          (+recordDate >= +start && +recordDate <= +end);
+      });
+      if (!coveredByClosure) freeCardTotal += Math.max(0, n(record.tutar));
+    }
+
+    for (const closure of closures) {
+      const start = isoDate(closure.baslangic), end = isoDate(closure.bitis);
+      if (!start || !end) continue;
+      const overlapStart = new Date(Math.max(+start, +periodStart)),
+        overlapEnd = new Date(Math.min(+end, +periodEnd));
+      if (+overlapStart > +overlapEnd) continue;
+      const closureDays = Math.max(1, Math.round((+end - +start) / 86400000) + 1),
+        overlapDays = Math.round((+overlapEnd - +overlapStart) / 86400000) + 1;
+      freeCardTotal += Math.max(0, n(closure.kart)) * overlapDays / closureDays;
+    }
+  }
+
+  const elapsedDays = +periodStart <= +periodEnd
+      ? Math.round((+periodEnd - +periodStart) / 86400000) + 1
+      : 0,
+    hasTrend = elapsedDays > 0 && freeCardTotal > 0,
+    freeWeeklyTrend = hasTrend ? freeCardTotal / elapsedDays * 7 : null,
+    fixedMonthly = cardIncludedPayments(d, y, m, false),
+    fixedWeekly = fixedMonthly / monthDays * 7,
+    currentGrossTarget = Math.max(0, n(d.haftalik_hedefler.kart)),
+    usableWeeklyLimit = Math.max(0, currentGrossTarget - fixedWeekly),
+    suggestedGrossTarget = freeWeeklyTrend === null ? null : freeWeeklyTrend + fixedWeekly;
+
+  return {
+    monthKey: monthKey(y, m),
+    periodStart,
+    periodEnd,
+    elapsedDays,
+    freeCardTotal,
+    freeWeeklyTrend,
+    fixedMonthly,
+    fixedWeekly,
+    currentGrossTarget,
+    usableWeeklyLimit,
+    suggestedGrossTarget,
+    hasTrend,
+  };
 }
 export function partialCardPaymentTotal(
   d: BudgetData,

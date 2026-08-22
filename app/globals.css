@@ -1621,9 +1621,37 @@ nav button {
   border-radius: 7px;
   font-weight: 800;
 }
+.cardTargetReviewCopy {
+  display: grid;
+  gap: 3px;
+  line-height: 1.45;
+}
+.cardTargetReviewCopy strong:first-child {
+  font-size: 14px;
+}
+.alertBanner button.alertClose {
+  min-width: 36px;
+  font-size: 20px;
+  line-height: 1;
+}
+.targetSuggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid #d9d2ff;
+  border-radius: 10px;
+  background: #f7f5ff;
+  color: var(--ink);
+  font-size: 13px;
+}
 @media (max-width: 700px) {
   .alertBanner { align-items: flex-start; flex-direction: column; }
   .alertActions { width: 100%; flex-wrap: wrap; }
+  .cardTargetReviewCopy { gap: 6px; }
+  .targetSuggestion { align-items: stretch; flex-direction: column; }
 }
 .alertBanner button:hover { opacity: 1; }
 /* Harcama satırında tarih */

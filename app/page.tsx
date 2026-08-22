@@ -18,6 +18,7 @@ import {
   isTurkishPublicHoliday,
   liveFinancial,
   monthlySpendingSummary,
+  monthlyCardTargetReview,
   normalize,
   nextMonth,
   paymentAmount,
@@ -388,6 +389,8 @@ function Dashboard({ session }: { session: Session }) {
     [lastSyncAt, setLastSyncAt] = useState<Date | null>(null),
     [notice, setNotice] = useState(""),
     [now, setNow] = useState(todayUtc()),
+    [closedCardReviewMonth, setClosedCardReviewMonth] = useState(""),
+    [suggestedCardTarget, setSuggestedCardTarget] = useState<number | null>(null),
     [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => {
       try {
         if (typeof window === "undefined") return new Set();
@@ -664,6 +667,14 @@ function Dashboard({ session }: { session: Session }) {
     anchorMonth = String(data.guncel_durum.tarih || "").slice(0, 7),
     currentMonthKey = dateToIso(now).slice(0, 7),
     needsMonthSync = !!anchorMonth && anchorMonth !== currentMonthKey,
+    cardTargetReview = monthlyCardTargetReview(data, now),
+    cardTargetApproved = !!data.kart_hedef_onaylari?.[currentMonthKey],
+    showCardTargetReview = now.getUTCDate() <= 3 &&
+      !cardTargetApproved && closedCardReviewMonth !== currentMonthKey,
+    currentMonthName = new Intl.DateTimeFormat("tr-TR", {
+      month: "long",
+      timeZone: "UTC",
+    }).format(now),
     payments = data.odemeler
       .filter((p) => activeInMonth(p, y, m))
       .sort((a, b) => num(a.odeme_gunu) - num(b.odeme_gunu));
@@ -727,6 +738,18 @@ function Dashboard({ session }: { session: Session }) {
       banka_fotografina_dahil: false,
     };
     save(d, "Ödeme gerçekleşti olarak işlendi");
+  }
+  function keepCurrentCardTarget() {
+    if (!window.confirm(
+      `Bu ay mevcut brüt kart hedefi olan ${trMoney(cardTargetReview.currentGrossTarget)} korunacak. Onaylıyor musunuz?`,
+    )) return;
+    const d = normalize(data);
+    d.kart_hedef_onaylari[currentMonthKey] = {
+      karar: "korundu",
+      hedef: cardTargetReview.currentGrossTarget,
+      onay_zamani: new Date().toISOString(),
+    };
+    void save(d, `${currentMonthName} kart hedefi korundu`);
   }
   return (
     <main>
@@ -817,6 +840,44 @@ function Dashboard({ session }: { session: Session }) {
         <button className="monthWarning" onClick={() => setTab("ayarlar")}>
           Yeni ay başladı! Bankadan gerçek KMH bakiyesini girin — Güncelle sekmesine tıklayın.
         </button>
+      )}
+      {showCardTargetReview && (
+        <div className="alertBanner warn cardTargetReview" role="region" aria-labelledby="card-target-review-title">
+          <div className="cardTargetReviewCopy">
+            <strong id="card-target-review-title">⚠️ {currentMonthName} kart hedefini kontrol edin</strong>
+            <span>
+              Mevcut brüt kart hedefiniz <b>{trMoney(cardTargetReview.currentGrossTarget)}/hafta</b>;
+              {" "}kullanılabilir haftalık kart limitiniz <b>{trMoney(cardTargetReview.usableWeeklyLimit)}</b>.
+            </span>
+            {cardTargetReview.hasTrend ? (
+              <>
+                <span>Gerçek kart harcama eğiliminiz <b>{trMoney(cardTargetReview.freeWeeklyTrend)}/hafta</b>.</span>
+                <span>Bu eğilim devam ederse gereken brüt kart hedefi <b>{trMoney(cardTargetReview.suggestedGrossTarget)}/hafta</b>.</span>
+              </>
+            ) : (
+              <span>Gerçek kart harcama eğilimini hesaplamak için yeterli kayıt bulunmuyor.</span>
+            )}
+          </div>
+          <span className="alertActions">
+            <button
+              className="alertPrimary"
+              onClick={() => {
+                setSuggestedCardTarget(cardTargetReview.suggestedGrossTarget);
+                setTab("ayarlar");
+              }}
+            >
+              Güncelle →
+            </button>
+            <button onClick={keepCurrentCardTarget}>Mevcut hedefi koru</button>
+            <button
+              className="alertClose"
+              aria-label="Kart hedefi uyarısını şimdilik kapat"
+              onClick={() => setClosedCardReviewMonth(currentMonthKey)}
+            >
+              ×
+            </button>
+          </span>
+        </div>
       )}
       {sync === "Bağlantı hatası" && (
         <div className="alertBanner danger" style={{ justifyContent: "center" }}>
@@ -949,7 +1010,15 @@ function Dashboard({ session }: { session: Session }) {
       {tab === "aylik" && (
         <Monthly data={data} now={now} />
       )}{" "}
-      {tab === "ayarlar" && <Update data={data} now={now} save={save} notice={notice} />}
+      {tab === "ayarlar" && (
+        <Update
+          data={data}
+          now={now}
+          save={save}
+          notice={notice}
+          suggestedCardTarget={suggestedCardTarget}
+        />
+      )}
     </main>
   );
 }
@@ -1918,11 +1987,13 @@ function Update({
   now,
   save,
   notice,
+  suggestedCardTarget,
 }: {
   data: BudgetData;
   now: Date;
   save: Save;
   notice: string;
+  suggestedCardTarget: number | null;
 }) {
   const [g, setG] = useState({ ...data.guncel_durum });
   const [kart, setKart] = useState({
@@ -2014,6 +2085,12 @@ function Update({
     const d = normalize(data);
     d.haftalik_hedefler.kart = kartHedef;
     d.haftalik_hedefler.nakit = nakitHedef;
+    const currentMonthKey = dateToIso(now).slice(0, 7);
+    d.kart_hedef_onaylari[currentMonthKey] = {
+      karar: "guncellendi",
+      hedef: kartHedef,
+      onay_zamani: new Date().toISOString(),
+    };
     save(d, "Haftalık hedefler güncellendi");
   }
 
@@ -2137,6 +2214,17 @@ function Update({
         <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 12px" }}>
           KMH çıkış tarihi ve nakit birikim hesabını etkiler.
         </p>
+        {suggestedCardTarget !== null && (
+          <div className="targetSuggestion">
+            <span>
+              Mevcut hedef <b>{trMoney(data.haftalik_hedefler.kart)}</b> · davranışa göre hesaplanan hedef{" "}
+              <b>{trMoney(suggestedCardTarget)}</b>
+            </span>
+            <button className="secondary" onClick={() => setKartHedef(suggestedCardTarget)}>
+              Önerilen değeri al
+            </button>
+          </div>
+        )}
         <div className="formGrid">
           <Field l="Haftalık kart tavanı" v={kartHedef} set={setKartHedef} />
           <Field l="Haftalık nakit / KMH" v={nakitHedef} set={setNakitHedef} />
