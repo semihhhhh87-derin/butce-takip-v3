@@ -73,8 +73,11 @@ function businessDueLabel(from: Date, due: Date): string {
 const authStorage = {
   async db() {
     return await new Promise<IDBDatabase>((resolve, reject) => {
-      const q = indexedDB.open("butce-takip-v2", 1);
-      q.onupgradeneeded = () => q.result.createObjectStore("auth");
+      const q = indexedDB.open("butce-takip-v2", 2);
+      q.onupgradeneeded = () => {
+        if (!q.result.objectStoreNames.contains("auth")) q.result.createObjectStore("auth");
+        if (!q.result.objectStoreNames.contains("outbox")) q.result.createObjectStore("outbox");
+      };
       q.onsuccess = () => resolve(q.result);
       q.onerror = () => reject(q.error);
     });
@@ -134,6 +137,44 @@ const authStorage = {
     }
   },
 };
+type PendingBudgetSave = {
+  family: string;
+  base: BudgetData;
+  next: BudgetData;
+  message: string;
+  createdAt: string;
+};
+const OUTBOX_KEY = "pending-budget-save";
+async function readPendingBudgetSave(): Promise<PendingBudgetSave | null> {
+  try {
+    const db = await authStorage.db();
+    return await new Promise<PendingBudgetSave | null>((resolve, reject) => {
+      const q = db.transaction("outbox").objectStore("outbox").get(OUTBOX_KEY);
+      q.onsuccess = () => resolve(q.result ?? null);
+      q.onerror = () => reject(q.error);
+    });
+  } catch { return null; }
+}
+async function writePendingBudgetSave(value: PendingBudgetSave) {
+  try {
+    const db = await authStorage.db();
+    await new Promise<void>((resolve, reject) => {
+      const q = db.transaction("outbox", "readwrite").objectStore("outbox").put(value, OUTBOX_KEY);
+      q.onsuccess = () => resolve();
+      q.onerror = () => reject(q.error);
+    });
+  } catch { /* Ekrandaki iyimser kayıt yine korunur. */ }
+}
+async function clearPendingBudgetSave() {
+  try {
+    const db = await authStorage.db();
+    await new Promise<void>((resolve, reject) => {
+      const q = db.transaction("outbox", "readwrite").objectStore("outbox").delete(OUTBOX_KEY);
+      q.onsuccess = () => resolve();
+      q.onerror = () => reject(q.error);
+    });
+  } catch { /* Sonraki başarılı kayıtta tekrar temizlenir. */ }
+}
 const supabase = createClient(
   "https://pixdaficmkqufmynpbio.supabase.co",
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpeGRhZmljbWtxdWZteW5wYmlvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3MjYxNDksImV4cCI6MjEwMjMwMjE0OX0.BgLN1HMgKUc1cyQNg8aDxAH-ASKKSxLial4mkMu90qk",
@@ -391,6 +432,8 @@ function Dashboard({ session }: { session: Session }) {
     [now, setNow] = useState(todayUtc()),
     [closedCardReviewMonth, setClosedCardReviewMonth] = useState(""),
     [suggestedCardTarget, setSuggestedCardTarget] = useState<number | null>(null),
+    [hasPendingSave, setHasPendingSave] = useState(false),
+    [retryingSave, setRetryingSave] = useState(false),
     [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => {
       try {
         if (typeof window === "undefined") return new Set();
@@ -406,12 +449,14 @@ function Dashboard({ session }: { session: Session }) {
     });
   }
   const versionRef = useRef(0),
-    dataRef = useRef<BudgetData | null>(null);
+    dataRef = useRef<BudgetData | null>(null),
+    retryingSaveRef = useRef(false);
   async function load() {
     setSync("Bağlanıyor");
     let m = await supabase
         .from("family_members")
         .select("family_id")
+        .eq("user_id", session.user.id)
         .limit(1)
         .maybeSingle(),
       fid = m.data?.family_id;
@@ -436,7 +481,6 @@ function Dashboard({ session }: { session: Session }) {
         updated_by: session.user.id,
       });
     }
-    setFamily(fid);
     const r = await supabase
       .from("budget_state")
       .select("payload,version")
@@ -569,22 +613,77 @@ function Dashboard({ session }: { session: Session }) {
       }
       savedVersion = Number(persisted.data.version) || r.data.version + 1;
     }
-    dataRef.current = finalData;
+    const pending = await readPendingBudgetSave(),
+      displayedData = pending?.family === fid ? normalize(pending.next) : finalData;
+    dataRef.current = displayedData;
     versionRef.current = savedVersion;
-    (window as any).__bd__ = finalData;
-    setData(finalData);
-    setSync("Güncel");
+    (window as any).__bd__ = displayedData;
+    setFamily(fid);
+    setData(displayedData);
+    setHasPendingSave(pending?.family === fid);
+    setSync(pending?.family === fid ? "Bağlantı bekleniyor" : "Güncel");
     setLastSyncAt(new Date());
   }
   useEffect(() => {
     // Initial load synchronizes the component with the authenticated remote store.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
-    const timer = window.setInterval(() => setNow(todayUtc()), 1000);
-    return () => window.clearInterval(timer);
+    let midnightTimer = 0;
+    const refreshDay = () => {
+      const current = todayUtc();
+      setNow((previous) => dateToIso(previous) === dateToIso(current) ? previous : current);
+    };
+    const scheduleMidnight = () => {
+      window.clearTimeout(midnightTimer);
+      const localNow = new Date(),
+        nextMidnight = new Date(localNow.getFullYear(), localNow.getMonth(), localNow.getDate() + 1, 0, 0, 1);
+      midnightTimer = window.setTimeout(() => {
+        refreshDay();
+        scheduleMidnight();
+      }, Math.max(1_000, +nextMidnight - +localNow));
+    };
+    const handleVisibility = () => { if (!document.hidden) refreshDay(); };
+    scheduleMidnight();
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", refreshDay);
+    return () => {
+      window.clearTimeout(midnightTimer);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", refreshDay);
+    };
   }, []);
-  async function save(next: BudgetData, message = "Kaydedildi") {
-    const base = dataRef.current || next,
+  useEffect(() => {
+    if (!family) return;
+    const retryWhenOnline = () => { if (navigator.onLine) void retryPendingSave(); };
+    void readPendingBudgetSave().then((pending) => {
+      const belongsHere = !!pending && pending.family === family;
+      setHasPendingSave(belongsHere);
+      if (belongsHere && navigator.onLine) void retryPendingSave();
+    });
+    window.addEventListener("online", retryWhenOnline);
+    return () => window.removeEventListener("online", retryWhenOnline);
+  }, [family]);
+  async function retryPendingSave() {
+    if (retryingSaveRef.current) return;
+    const pending = await readPendingBudgetSave();
+    if (!pending || pending.family !== family) {
+      setHasPendingSave(false);
+      return;
+    }
+    retryingSaveRef.current = true;
+    setRetryingSave(true);
+    try {
+      await save(pending.next, pending.message, pending.base);
+    } finally {
+      retryingSaveRef.current = false;
+      setRetryingSave(false);
+    }
+  }
+  async function save(next: BudgetData, message = "Kaydedildi", baseOverride?: BudgetData) {
+    const existingPending = await readPendingBudgetSave(),
+      base = existingPending?.family === family
+        ? existingPending.base
+        : baseOverride || dataRef.current || next,
       expectedVersion = versionRef.current;
     dataRef.current = next;
     setData(next);
@@ -609,11 +708,13 @@ function Dashboard({ session }: { session: Session }) {
         .eq("family_id", family)
         .single();
       if (fresh.error) {
-        setSync("Bağlantı hatası");
+        await writePendingBudgetSave({ family, base, next, message, createdAt: new Date().toISOString() });
+        setHasPendingSave(true);
+        setSync("Bağlantı bekleniyor");
         const isAuthErr = fresh.error.code === "PGRST301" || String(fresh.error.message).toLowerCase().includes("jwt") || String(fresh.error.message).toLowerCase().includes("auth");
         setNotice(isAuthErr
           ? "Oturumunuzun süresi doldu. Lütfen sayfayı yenileyin ve tekrar giriş yapın."
-          : "Kayıt gönderilemedi; ekrandaki giriş korunuyor.");
+          : "Kaydedilmedi — bağlantı bekleniyor. Girişiniz bu cihazda güvenle saklandı.");
         return;
       }
       const merged = normalize(
@@ -632,10 +733,10 @@ function Dashboard({ session }: { session: Session }) {
         .select("version")
         .maybeSingle();
       if (!r.data || r.error) {
-        await load();
-        setNotice(
-          "Aynı anda başka kayıt yapıldı; lütfen işlemi yeniden girin.",
-        );
+        await writePendingBudgetSave({ family, base, next, message, createdAt: new Date().toISOString() });
+        setHasPendingSave(true);
+        setSync("Kayıt çakışması");
+        setNotice("Çakışma çözülemedi. Yerel kaydınız silinmedi; Tekrar dene ile yeniden gönderebilirsiniz.");
         return;
       }
       dataRef.current = merged;
@@ -643,6 +744,8 @@ function Dashboard({ session }: { session: Session }) {
       finalMessage = `${message} · Diğer cihazdaki değişikliklerle birleştirildi.`;
     }
     versionRef.current = r.data.version;
+    await clearPendingBudgetSave();
+    setHasPendingSave(false);
     setSync("Güncel");
     setLastSyncAt(new Date());
     setNotice(finalMessage);
@@ -879,9 +982,14 @@ function Dashboard({ session }: { session: Session }) {
           </span>
         </div>
       )}
-      {sync === "Bağlantı hatası" && (
+      {(sync === "Bağlantı hatası" || hasPendingSave) && (
         <div className="alertBanner danger" style={{ justifyContent: "center" }}>
-          <span>Bağlantı kesildi. Girdiğiniz veriler bu ekranda korunuyor; bağlantı düzelince yeniden kaydedebilirsiniz.</span>
+          <span>{sync === "Kayıt çakışması"
+            ? "Kayıt çakışması çözülemedi. Yerel değişikliğiniz bu cihazda bekliyor."
+            : "Kaydedilmedi — bağlantı bekleniyor. Girdiğiniz veri bu cihazda güvenle saklandı."}</span>
+          {hasPendingSave && <button className="alertPrimary" onClick={() => void retryPendingSave()} disabled={retryingSave}>
+            {retryingSave ? "Gönderiliyor…" : "Tekrar dene"}
+          </button>}
         </div>
       )}
       {(() => {
@@ -1284,11 +1392,11 @@ function Payments({
           p={form}
           set={setForm}
           cancel={() => setForm(null)}
-          done={() => {
+          done={(submitted) => {
             const d = normalize(data),
-              i = d.odemeler.findIndex((x) => x.id === form.id);
-            const currentAmount = num(form.bu_ay_tutar),
-              clean = { ...form };
+              i = d.odemeler.findIndex((x) => x.id === submitted.id);
+            const currentAmount = num(submitted.bu_ay_tutar),
+              clean = { ...submitted };
             delete clean.bu_ay_tutar;
             // Faturalar son bilinen tutarla projekte edilir: bu ay girilen değer,
             // daha sonraki bir ayda yeni değer girilene kadar geçerli kalır.
@@ -1347,13 +1455,14 @@ function PaymentForm({
   p: any;
   set: (v: any) => void;
   cancel: () => void;
-  done: () => void;
+  done: (value: any) => void;
 }) {
   // Raw string states for decimal inputs
   const [rawBuAy, setRawBuAy] = useState(String(p.bu_ay_tutar ?? p.tutar ?? 0));
   const [rawTutar, setRawTutar] = useState(String(p.tutar ?? 0));
   const [rawGun, setRawGun] = useState(String(p.odeme_gunu ?? ""));
-  const [rawTaksit, setRawTaksit] = useState(String(p.taksit_sayisi ?? ""));
+  const [rawTaksit, setRawTaksit] = useState(String(p.taksit_sayisi ?? "")),
+    [errors, setErrors] = useState<Record<string, string>>({});
 
   function parseNum(s: string) {
     return parseTrMoney(s) ?? 0;
@@ -1387,6 +1496,42 @@ function PaymentForm({
       String(bitisDate.getMonth() + 1).padStart(2, "0");
     set({ ...p, baslangic_ay: val, bitis_ay: bitisAy });
   }
+  function submit() {
+    const nextErrors: Record<string, string> = {},
+      name = String(p.ad || "").trim(),
+      currentAmount = parseTrMoney(rawBuAy),
+      normalAmount = parseTrMoney(rawTutar),
+      day = Number(rawGun),
+      installmentCount = rawTaksit.trim() === "" ? 0 : Number(rawTaksit);
+    if (!name) nextErrors.ad = "Ödeme adı zorunludur.";
+    if (currentAmount === null || currentAmount < 0)
+      nextErrors.buAy = "Tutar sıfır veya daha büyük olmalıdır.";
+    if (p.tur !== "taksit" && !carriesForwardPaymentAmount(p) && (normalAmount === null || normalAmount < 0))
+      nextErrors.tutar = "Sonraki ayların tutarı sıfır veya daha büyük olmalıdır.";
+    if (!Number.isInteger(day) || day < 1 || day > 31)
+      nextErrors.gun = "Ödeme günü 1 ile 31 arasında olmalıdır.";
+    if (!Number.isInteger(installmentCount) || installmentCount < 0)
+      nextErrors.taksit = "Taksit sayısı pozitif bir tam sayı olmalıdır.";
+    if (installmentCount > 0 && !p.baslangic_ay)
+      nextErrors.baslangic = "Taksitli ödeme için başlangıç ayı seçilmelidir.";
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
+    const clean = {
+      ...p,
+      ad: name,
+      bu_ay_tutar: currentAmount,
+      odeme_gunu: day,
+      taksit_sayisi: installmentCount,
+    };
+    if (p.tur === "taksit" || carriesForwardPaymentAmount(p)) clean.tutar = currentAmount;
+    else clean.tutar = normalAmount;
+    if (installmentCount > 0 && clean.baslangic_ay) {
+      const [y, m] = clean.baslangic_ay.split("-").map(Number),
+        end = new Date(y, m - 1 + installmentCount - 1);
+      clean.bitis_ay = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}`;
+    } else delete clean.bitis_ay;
+    done(clean);
+  }
   return (
     <div className="editor">
       <h3>Ödeme bilgisi</h3>
@@ -1394,9 +1539,12 @@ function PaymentForm({
         <label>
           Ad
           <input
-            value={p.ad}
+            value={p.ad || ""}
             onChange={(e) => set({ ...p, ad: e.target.value })}
+            aria-invalid={!!errors.ad}
+            aria-describedby={errors.ad ? "payment-name-error" : undefined}
           />
+          {errors.ad && <small className="fieldError" id="payment-name-error">{errors.ad}</small>}
         </label>
         <label>
           Tür
@@ -1430,7 +1578,10 @@ function PaymentForm({
                 : { ...p, bu_ay_tutar: v });
             }}
             onFocus={(e) => e.target.select()}
+            aria-invalid={!!errors.buAy}
+            aria-describedby={errors.buAy ? "payment-current-amount-error" : undefined}
           />
+          {errors.buAy && <small className="fieldError" id="payment-current-amount-error">{errors.buAy}</small>}
         </label>
         {p.tur !== "taksit" && !carriesForwardPaymentAmount(p) && (
           <label>
@@ -1446,7 +1597,10 @@ function PaymentForm({
                 set({ ...p, tutar: v });
               }}
               onFocus={(e) => e.target.select()}
+              aria-invalid={!!errors.tutar}
+              aria-describedby={errors.tutar ? "payment-normal-amount-error" : undefined}
             />
+            {errors.tutar && <small className="fieldError" id="payment-normal-amount-error">{errors.tutar}</small>}
           </label>
         )}
         <label>
@@ -1462,7 +1616,10 @@ function PaymentForm({
               set({ ...p, odeme_gunu: v });
             }}
             onFocus={(e) => e.target.select()}
+            aria-invalid={!!errors.gun}
+            aria-describedby={errors.gun ? "payment-day-error" : undefined}
           />
+          {errors.gun && <small className="fieldError" id="payment-day-error">{errors.gun}</small>}
         </label>
         <label>
           Kaynak
@@ -1480,7 +1637,10 @@ function PaymentForm({
             type="month"
             value={p.baslangic_ay || ""}
             onChange={(e) => setBaslangic(e.target.value)}
+            aria-invalid={!!errors.baslangic}
+            aria-describedby={errors.baslangic ? "payment-start-error" : undefined}
           />
+          {errors.baslangic && <small className="fieldError" id="payment-start-error">{errors.baslangic}</small>}
         </label>
         <label>
           Taksit sayısı
@@ -1497,7 +1657,10 @@ function PaymentForm({
               setTaksitSayisi(v);
             }}
             onFocus={(e) => e.target.select()}
+            aria-invalid={!!errors.taksit}
+            aria-describedby={errors.taksit ? "payment-installment-error" : undefined}
           />
+          {errors.taksit && <small className="fieldError" id="payment-installment-error">{errors.taksit}</small>}
         </label>
         {p.bitis_ay && (
           <label>
@@ -1517,7 +1680,7 @@ function PaymentForm({
         </label>
       </div>
       <div className="actions">
-        <button className="primary" onClick={done}>
+        <button className="primary" onClick={submit}>
           Kaydet
         </button>
         <button className="ghost" onClick={cancel}>
