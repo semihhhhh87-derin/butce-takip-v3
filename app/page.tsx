@@ -675,42 +675,9 @@ function Dashboard({ session }: { session: Session }) {
       month: "long",
       timeZone: "UTC",
     }).format(now),
-    calendarSimulationEnabled = typeof window !== "undefined" &&
-      new URLSearchParams(window.location.search).get("kartGunSimulasyonu") === "1",
-    calendarSimulationData = calendarSimulationEnabled ? normalize(data) : null,
     payments = data.odemeler
       .filter((p) => activeInMonth(p, y, m))
       .sort((a, b) => num(a.odeme_gunu) - num(b.odeme_gunu));
-
-  if (calendarSimulationData)
-    calendarSimulationData.butce_plani.kart_sabit_yuk_gercek_gun_dagitimi = true;
-  const calendarSimulationPlan = calendarSimulationData
-      ? exitDates(calendarSimulationData, now)
-      : null,
-    calendarSimulationRows = calendarSimulationPlan
-      ? plan.rows
-          .filter((row: any) => {
-            const key = row.yil * 12 + row.ay;
-            return key >= 2026 * 12 + 8 && key <= 2027 * 12 + 2;
-          })
-          .map((oldRow: any) => {
-            const newRow = calendarSimulationPlan.rows.find(
-              (row: any) => row.yil === oldRow.yil && row.ay === oldRow.ay,
-            );
-            const monthDate = new Date(Date.UTC(oldRow.yil, oldRow.ay - 1, 1));
-            return {
-              ay: `${oldRow.yil}-${String(oldRow.ay).padStart(2, "0")}`,
-              eski_kart_hedefi: monthlySpendingSummary(data, monthDate).goal.kart,
-              yeni_kart_hedefi: monthlySpendingSummary(calendarSimulationData!, monthDate).goal.kart,
-              eski_kmh: oldRow.ek_avans,
-              yeni_kmh: newRow?.ek_avans,
-              eski_kart_borcu: oldRow.kart_kapanis_borcu,
-              yeni_kart_borcu: newRow?.kart_kapanis_borcu,
-              eski_kart_harcamasi: oldRow.kart_yeni_harcama,
-              yeni_kart_harcamasi: newRow?.kart_yeni_harcama,
-            };
-          })
-      : [];
 
   /** Bir ödemenin belirtilen ay/yıl için ödenip ödenmediğini kontrol eder.
    *  odendi_kayitlari VE kart_kademeli_odemeler toplamını dikkate alır. */
@@ -873,15 +840,6 @@ function Dashboard({ session }: { session: Session }) {
         <button className="monthWarning" onClick={() => setTab("ayarlar")}>
           Yeni ay başladı! Bankadan gerçek KMH bakiyesini girin — Güncelle sekmesine tıklayın.
         </button>
-      )}
-      {calendarSimulationPlan && (
-        <section className="panel" style={{ margin: 16, padding: 16 }} aria-label="Gerçek gün dağıtımı simülasyonu">
-          <h2>Gerçek gün dağıtımı — salt okunur simülasyon</h2>
-          <p>Eski KMH çıkışı: <b>{trMonth(plan.kmh)}</b> · Yeni KMH çıkışı: <b>{trMonth(calendarSimulationPlan.kmh)}</b></p>
-          <pre id="calendar-day-simulation-output" style={{ whiteSpace: "pre-wrap", fontSize: 12 }}>
-            {JSON.stringify(calendarSimulationRows, null, 2)}
-          </pre>
-        </section>
       )}
       {showCardTargetReview && (
         <div className="alertBanner warn cardTargetReview" role="region" aria-labelledby="card-target-review-title">
