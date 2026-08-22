@@ -3,8 +3,10 @@
 import { createClient, Session } from "@supabase/supabase-js";
 import { useEffect, useRef, useState } from "react";
 import {
+  ACTIVITY_RETENTION_MS,
   activeInMonth,
   activeWeeklySummary,
+  activityFromOtherDevice,
   cardReductionAdvice,
   cardStatementInterest,
   carriesForwardPaymentAmount,
@@ -23,6 +25,8 @@ import {
   nextMonth,
   paymentAmount,
   paymentKey,
+  pruneActivityLog,
+  recentActivityLog,
   scheduledIncomeRemaining,
   trMoney,
   trMonth,
@@ -145,6 +149,28 @@ type PendingBudgetSave = {
   createdAt: string;
 };
 const OUTBOX_KEY = "pending-budget-save";
+const DEVICE_ID_KEY = "budget-anonymous-device-id";
+const ACTIVITY_NOTIFIED_KEY = "budget-activity-notified-ids";
+const ACTIVITY_SEEN_KEY = "budget-activity-seen-ids";
+function getAnonymousDeviceId() {
+  try {
+    const existing = localStorage.getItem(DEVICE_ID_KEY);
+    if (existing) return existing;
+    const created = globalThis.crypto?.randomUUID?.() || `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(DEVICE_ID_KEY, created);
+    return created;
+  } catch { return `session-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+}
+function readLocalIdSet(key: string) {
+  try { return new Set<string>(JSON.parse(localStorage.getItem(key) || "[]")); }
+  catch { return new Set<string>(); }
+}
+function hasLocalValue(key: string) {
+  try { return localStorage.getItem(key) !== null; } catch { return false; }
+}
+function writeLocalIdSet(key: string, values: Iterable<string>) {
+  try { localStorage.setItem(key, JSON.stringify([...values])); } catch { /* Oturum boyunca state kullanılmaya devam eder. */ }
+}
 async function readPendingBudgetSave(): Promise<PendingBudgetSave | null> {
   try {
     const db = await authStorage.db();
@@ -439,6 +465,9 @@ function Dashboard({ session }: { session: Session }) {
     [suggestedCardTarget, setSuggestedCardTarget] = useState<number | null>(null),
     [hasPendingSave, setHasPendingSave] = useState(false),
     [retryingSave, setRetryingSave] = useState(false),
+    [deviceId] = useState(getAnonymousDeviceId),
+    [activityNoticeCount, setActivityNoticeCount] = useState(0),
+    [unseenActivityCount, setUnseenActivityCount] = useState(0),
     [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => {
       try {
         if (typeof window === "undefined") return new Set();
@@ -456,7 +485,8 @@ function Dashboard({ session }: { session: Session }) {
   const versionRef = useRef(0),
     dataRef = useRef<BudgetData | null>(null),
     retryingSaveRef = useRef(false),
-    pendingSaveRef = useRef(false);
+    pendingSaveRef = useRef(false),
+    activityInitializedFamilyRef = useRef("");
   useEffect(() => { pendingSaveRef.current = hasPendingSave; }, [hasPendingSave]);
   async function load() {
     setSync("Bağlanıyor");
@@ -503,6 +533,7 @@ function Dashboard({ session }: { session: Session }) {
     const [thisWeekStart] = weekRange(now_);
     let autoSaved = false;
     const withAuto = normalize(loaded);
+    if (pruneActivityLog(withAuto)) autoSaved = true;
     let cursor = new Date(Date.UTC(2024, 0, 1)); // eski bir başlangıç noktası
     // bütçe başlangıç tarihinden itibaren kap
     const planStart = loaded.butce_plani?.butce_baslangic_tarihi;
@@ -670,6 +701,52 @@ function Dashboard({ session }: { session: Session }) {
     window.addEventListener("online", retryWhenOnline);
     return () => window.removeEventListener("online", retryWhenOnline);
   }, [family]);
+  useEffect(() => {
+    if (!data || !family) return;
+    const recent = recentActivityLog(data),
+      recentIds = new Set(recent.map((item: any) => String(item.id))),
+      otherDevice = activityFromOtherDevice(data, deviceId),
+      notifiedKey = `${ACTIVITY_NOTIFIED_KEY}-${family}`,
+      seenKey = `${ACTIVITY_SEEN_KEY}-${family}`;
+    if (activityInitializedFamilyRef.current !== family) {
+      activityInitializedFamilyRef.current = family;
+      if (!hasLocalValue(notifiedKey))
+        writeLocalIdSet(notifiedKey, recentIds);
+      if (!hasLocalValue(seenKey))
+        writeLocalIdSet(seenKey, recentIds);
+    }
+    const notified = readLocalIdSet(notifiedKey),
+      seen = readLocalIdSet(seenKey),
+      newItems = activityFromOtherDevice(data, deviceId, notified);
+    if (newItems.length) {
+      for (const item of newItems) notified.add(String(item.id));
+      // Yeni uzak kayıtları tek seferlik uygulama içi bildirime dönüştür.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setActivityNoticeCount((current) => current + newItems.length);
+    }
+    writeLocalIdSet(notifiedKey, [...notified].filter((id) => recentIds.has(id)));
+    writeLocalIdSet(seenKey, [...seen].filter((id) => recentIds.has(id)));
+    setUnseenActivityCount(otherDevice.filter((item: any) => !seen.has(String(item.id))).length);
+  }, [data, deviceId, family]);
+  useEffect(() => {
+    if (!activityNoticeCount) return;
+    const timer = window.setTimeout(() => setActivityNoticeCount(0), 7_000);
+    return () => window.clearTimeout(timer);
+  }, [activityNoticeCount]);
+  useEffect(() => {
+    if (!data || !family || !(data.hareket_gunlugu || []).length) return;
+    const expiries = data.hareket_gunlugu
+      .map((item: any) => +new Date(item.olusturma_zamani || 0) + ACTIVITY_RETENTION_MS)
+      .filter((value: number) => Number.isFinite(value));
+    if (!expiries.length) return;
+    const nextExpiry = Math.min(...expiries),
+      delay = Math.max(1_000, nextExpiry - Date.now() + 250);
+    const timer = window.setTimeout(() => {
+      const current = dataRef.current ? normalize(dataRef.current) : null;
+      if (current && pruneActivityLog(current)) void save(current, "");
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [data, family]);
   useEffect(() => {
     if (!family) return;
     let active = true;
@@ -905,6 +982,15 @@ function Dashboard({ session }: { session: Session }) {
     };
     void save(d, `${currentMonthName} kart hedefi korundu`);
   }
+  function openWeekly() {
+    const seenKey = `${ACTIVITY_SEEN_KEY}-${family}`,
+      seen = readLocalIdSet(seenKey);
+    for (const item of recentActivityLog(data)) seen.add(String(item.id));
+    writeLocalIdSet(seenKey, seen);
+    setUnseenActivityCount(0);
+    setActivityNoticeCount(0);
+    setTab("harcama");
+  }
   return (
     <main>
       <header className="topbar">
@@ -928,11 +1014,14 @@ function Dashboard({ session }: { session: Session }) {
             <button
               key={x[0]}
               className={tab === x[0] ? "active" : ""}
-              onClick={() => setTab(x[0])}
+              onClick={() => x[0] === "harcama" ? openWeekly() : setTab(x[0])}
             >
               {x[1]}
               {x[0] === "odemeler" && urgentCount > 0 && (
                 <span className="navBadge">{urgentCount}</span>
+              )}
+              {x[0] === "harcama" && unseenActivityCount > 0 && (
+                <span className="navBadge activityBadge">{unseenActivityCount} yeni</span>
               )}
             </button>
           ))}
@@ -1048,6 +1137,17 @@ function Dashboard({ session }: { session: Session }) {
           </button>}
         </div>
       )}
+      {activityNoticeCount > 0 && (
+        <div className="alertBanner info activityNotice" role="status">
+          <span>
+            <b>{activityNoticeCount === 1 ? "Yeni harcama girişi yapıldı" : `${activityNoticeCount} yeni harcama girişi yapıldı`}</b>
+            {" · "}Haftalık kayıtlar güncellendi.
+          </span>
+          <span className="alertActions">
+            <button className="alertPrimary" onClick={openWeekly}>Haftalığa git</button>
+          </span>
+        </div>
+      )}
       {(() => {
         const alerts: { key: string; msg: string; type: "info" | "warn" | "danger"; action?: boolean }[] = [];
         const usableWeekGoal = adjustedGoals(week, carry);
@@ -1114,7 +1214,7 @@ function Dashboard({ session }: { session: Session }) {
       )}
       {tab === "ozet" && (
         <>
-          <WeekBox week={week} carry={carry} data={data} now={now} save={save} />
+          <WeekBox week={week} carry={carry} data={data} now={now} save={save} deviceId={deviceId} />
           <div className="layout">
           <Payments
             data={data}
@@ -1816,12 +1916,14 @@ function WeekBox({
   data,
   now,
   save,
+  deviceId,
 }: {
   week: any;
   carry: any;
   data: BudgetData;
   now: Date;
   save: Save;
+  deviceId: string;
 }) {
   const [type, setType] = useState<"kart" | "nakit">("kart"),
     [amount, setAmount] = useState(""),
@@ -1925,15 +2027,25 @@ function WeekBox({
     const v = parseTrMoney(amount) ?? 0;
     if (v <= 0 || v > 100_000 || savingExpense) return;
     setSavingExpense(true);
-    const d = normalize(data);
+    const d = normalize(data),
+      expenseId = newId(),
+      createdAt = new Date().toISOString();
+    pruneActivityLog(d);
     d.haftalik_harcamalar.push({
-      id: newId(),
+      id: expenseId,
       tarih: dateToIso(now),
       butce_haftasi: wk,
       tur: type,
       tutar: v,
       aciklama: desc,
-      olusturma_zamani: new Date().toISOString(),
+      olusturma_zamani: createdAt,
+    });
+    d.hareket_gunlugu.push({
+      id: `harcama-${expenseId}`,
+      tur: "harcama_eklendi",
+      harcama_id: expenseId,
+      kaynak_cihaz_id: deviceId,
+      olusturma_zamani: createdAt,
     });
     await save(
       d,

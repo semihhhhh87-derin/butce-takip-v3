@@ -16,9 +16,11 @@ export type BudgetData = AnyMap & {
   aylik_ankorlar: AnyMap;
   kart_hesap_ozeti_gecmisi: AnyMap[];
   kart_hedef_onaylari: AnyMap;
+  hareket_gunlugu: AnyMap[];
 };
 export const START_YEAR = 2026,
   START_MONTH = 8;
+export const ACTIVITY_RETENTION_MS = 48 * 60 * 60 * 1000;
 const n = (v: any, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 const key = (y: number, m: number, id: any) =>
   `${y}-${String(m).padStart(2, "0")}-${id}`;
@@ -78,6 +80,7 @@ export function normalize(raw: any): BudgetData {
   obj("kart_hedef_onaylari");
   arr("kart_iadesi_gecmisi");
   arr("kart_kademeli_odemeler");
+  arr("hareket_gunlugu");
   const closeLegacyRefund = (state: AnyMap) => {
     const amount = Math.max(0, n(state.yk_beklenen_iade));
     if (amount > 0) {
@@ -112,6 +115,31 @@ export function normalize(raw: any): BudgetData {
   d.haftalik_hedefler.kart ??= 6300;
   d.haftalik_hedefler.nakit ??= 2800;
   return d as BudgetData;
+}
+export function recentActivityLog(d: BudgetData, nowMs = Date.now()) {
+  const cutoff = nowMs - ACTIVITY_RETENTION_MS;
+  return (d.hareket_gunlugu || []).filter((item: AnyMap) => {
+    const created = +new Date(item.olusturma_zamani || 0);
+    return item.tur === "harcama_eklendi" && created >= cutoff && created <= nowMs + 60_000;
+  });
+}
+export function pruneActivityLog(d: BudgetData, nowMs = Date.now()) {
+  const before = (d.hareket_gunlugu || []).length;
+  d.hareket_gunlugu = recentActivityLog(d, nowMs);
+  return d.hareket_gunlugu.length !== before;
+}
+export function activityFromOtherDevice(
+  d: BudgetData,
+  deviceId: string,
+  knownIds: Iterable<string> = [],
+  nowMs = Date.now(),
+) {
+  const known = new Set(knownIds);
+  return recentActivityLog(d, nowMs).filter((item: AnyMap) =>
+    item.kaynak_cihaz_id &&
+    item.kaynak_cihaz_id !== deviceId &&
+    !known.has(String(item.id)),
+  );
 }
 export function activeInMonth(p: AnyMap, y: number, m: number) {
   if (p.aktif === false) return false;

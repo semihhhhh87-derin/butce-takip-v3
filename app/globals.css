@@ -1528,6 +1528,10 @@ nav button {
   vertical-align: middle;
   line-height: 1;
 }
+.navBadge.activityBadge {
+  min-width: max-content;
+  background: var(--green);
+}
 
 /* U2: Yükleme spinner */
 .loadingSpinner {
