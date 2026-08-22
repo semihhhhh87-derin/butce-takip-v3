@@ -23,6 +23,37 @@ test("haftalık hedef bütçe miladından önceki sabit kart ödemesini düşmez
   assert.equal(goal.goal.kart, 7_200);
 });
 
+test("banka fotoğrafı tarihi haftalık kullanılabilir kart hedefini değiştirmez", () => {
+  const base = {
+    butce_plani: { butce_baslangic_tarihi: "2026-08-17" },
+    haftalik_hedefler: { kart: 7_200, nakit: 4_000 },
+    odemeler: [{
+      id: "sabit-kart",
+      aktif: true,
+      gun: 22,
+      tutar: 3_817,
+      odeme_kaynagi: "kredi_karti",
+      kart_tavanina_dahil: true,
+    }],
+  };
+  const beforePhoto = normalize({
+    ...base,
+    guncel_durum: { tarih: "2026-08-17" },
+  });
+  const afterPhoto = normalize({
+    ...base,
+    guncel_durum: { tarih: "2026-08-21" },
+  });
+  const start = new Date("2026-08-17T00:00:00Z");
+  const end = new Date("2026-08-23T00:00:00Z");
+
+  const first = weeklyGoal(beforePhoto, start, end).goal.kart;
+  const second = weeklyGoal(afterPhoto, start, end).goal.kart;
+
+  assert.equal(Math.round(first * 100) / 100, 5_418.73);
+  assert.equal(Math.round(second * 100) / 100, 5_418.73);
+});
+
 test("haftalık taşıma bütçe miladından önceki kapanışları yok sayar", () => {
   const data = normalize({
     butce_plani: { butce_baslangic_tarihi: "2026-08-17" },

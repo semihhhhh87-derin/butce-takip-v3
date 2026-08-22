@@ -303,13 +303,10 @@ export function weeklyGoal(d: BudgetData, start: Date, end: Date) {
         [y, m] = dateParts(day);
       // Sabit kart yükünü ayın gerçek günlerine dağıt. Bütçe ay ortasında
       // başladıysa yalnız başlangıçtan ay sonuna kadar kalan günleri kullan.
-      const anchorDate = isoDate(d.guncel_durum.tarih);
-      const monthRef =
-        anchorDate && cmp(dateParts(anchorDate), [y, m]) === 0
-          ? anchorDate
-          : plan && cmp(dateParts(plan), [y, m]) === 0
-          ? plan
-          : null;
+      // Haftalık yaşam hedefi banka fotoğrafının alındığı güne göre değişmemeli.
+      // Kısmi ay dağıtımı yalnız bütçe başlangıç tarihinde uygulanır; banka
+      // fotoğrafı kalan bakiye/projeksiyon hesabının ankrajıdır.
+      const monthRef = plan && cmp(dateParts(plan), [y, m]) === 0 ? plan : null;
       const fixed = cardIncludedPayments(d, y, m, false, monthRef || undefined);
       const allocationDays = monthRef
           ? Math.max(1, daysInMonth(y, m) - monthRef.getUTCDate() + 1)
