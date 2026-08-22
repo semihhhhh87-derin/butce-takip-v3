@@ -2180,6 +2180,9 @@ function Update({
   const [kartHedef, setKartHedef] = useState(num(data.haftalik_hedefler.kart));
   const [nakitHedef, setNakitHedef] = useState(num(data.haftalik_hedefler.nakit));
   const [maasForm, setMaasForm] = useState<any>(null);
+  const milatSource = String(data.butce_plani.butce_baslangic_tarihi || "").slice(0, 10);
+  const [milatDraft, setMilatDraft] = useState({ source: milatSource, value: milatSource });
+  const milatTarihi = milatDraft.source === milatSource ? milatDraft.value : milatSource;
 
   function sync() {
     const d = normalize(data);
@@ -2246,14 +2249,17 @@ function Update({
   }
   function saveHedefler() {
     const d = normalize(data);
+    const kartHedefiDegisti = Math.abs(num(data.haftalik_hedefler.kart) - kartHedef) > 0.005;
     d.haftalik_hedefler.kart = kartHedef;
     d.haftalik_hedefler.nakit = nakitHedef;
-    const currentMonthKey = dateToIso(now).slice(0, 7);
-    d.kart_hedef_onaylari[currentMonthKey] = {
-      karar: "guncellendi",
-      hedef: kartHedef,
-      onay_zamani: new Date().toISOString(),
-    };
+    if (kartHedefiDegisti) {
+      const currentMonthKey = dateToIso(now).slice(0, 7);
+      d.kart_hedef_onaylari[currentMonthKey] = {
+        karar: "guncellendi",
+        hedef: kartHedef,
+        onay_zamani: new Date().toISOString(),
+      };
+    }
     save(d, "Haftalık hedefler güncellendi");
   }
 
@@ -2299,15 +2305,15 @@ function Update({
           </label>
           <input
             type="date"
-            defaultValue={String(data.butce_plani.butce_baslangic_tarihi || "").slice(0, 10)}
+            value={milatTarihi}
+            onChange={(event) => setMilatDraft({ source: milatSource, value: event.target.value })}
             style={{ padding: "8px 12px", border: "1.5px solid var(--line)", borderRadius: 8, fontSize: "1rem", marginRight: 10 }}
             id="milatInput"
           />
           <button
             className="secondary"
             onClick={() => {
-              const v = (document.getElementById("milatInput") as HTMLInputElement)?.value;
-              if (v) saveMilat(v);
+              if (milatTarihi) saveMilat(milatTarihi);
             }}
           >
             Kaydet
