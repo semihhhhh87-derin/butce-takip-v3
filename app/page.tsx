@@ -31,7 +31,6 @@ import {
   trMoney,
   trMonth,
   todayUtc,
-  weeklyCarryAdjustment,
   weeklySavings,
   weeklyCardSavings,
   weekRange,
@@ -890,7 +889,6 @@ function Dashboard({ session }: { session: Session }) {
       data.haftalik_hedefler.kart,
     ),
     week = activeWeeklySummary(data, now),
-    carry = weeklyCarryAdjustment(data, week.start),
     month = monthlySpendingSummary(data, now),
     savings = weeklySavings(data),
     cardSavings = weeklyCardSavings(data),
@@ -1150,7 +1148,7 @@ function Dashboard({ session }: { session: Session }) {
       )}
       {(() => {
         const alerts: { key: string; msg: string; type: "info" | "warn" | "danger"; action?: boolean }[] = [];
-        const usableWeekGoal = adjustedGoals(week, carry);
+        const usableWeekGoal = week.goal;
         const weekOver = week.spent.kart + week.spent.nakit > (usableWeekGoal.kart + usableWeekGoal.nakit);
         if (weekOver && !dismissedAlerts.has("week-over"))
           alerts.push({ key: "week-over", msg: "Bu haftanın harcama hedefi aşıldı.", type: "danger" });
@@ -1214,7 +1212,7 @@ function Dashboard({ session }: { session: Session }) {
       )}
       {tab === "ozet" && (
         <>
-          <WeekBox week={week} carry={carry} data={data} now={now} save={save} deviceId={deviceId} />
+          <WeekBox week={week} data={data} now={now} save={save} deviceId={deviceId} />
           <div className="layout">
           <Payments
             data={data}
@@ -1266,7 +1264,6 @@ function Dashboard({ session }: { session: Session }) {
         <Weekly
           data={data}
           week={week}
-          carry={carry}
           savings={savings}
           save={save}
         />
@@ -1904,22 +1901,14 @@ function PaymentForm({
   );
 }
 
-function adjustedGoals(week: any, carry: any) {
-  return {
-    kart: Math.max(0, week.goal.kart - carry.kart),
-    nakit: Math.max(0, week.goal.nakit - carry.nakit),
-  };
-}
 function WeekBox({
   week,
-  carry,
   data,
   now,
   save,
   deviceId,
 }: {
   week: any;
-  carry: any;
   data: BudgetData;
   now: Date;
   save: Save;
@@ -1987,11 +1976,10 @@ function WeekBox({
     };
   }, [mobileEntryOpen]);
 
-  const g = adjustedGoals(week, carry),
+  const g = week.goal,
     r = g.kart + g.nakit - week.spent.kart - week.spent.nakit,
     baseCardGoal = num(data.haftalik_hedefler.kart),
-    fixedCardReserved = Math.max(0, baseCardGoal - week.goal.kart),
-    cardCarryReduction = Math.max(0, week.goal.kart - g.kart);
+    fixedCardReserved = Math.max(0, baseCardGoal - week.goal.kart);
 
   const wk = dateToIso(week.start),
     advanced = +week.start > +now;
@@ -2194,11 +2182,10 @@ function WeekBox({
       </div>
       <Meter l="Kredi kartı" v={week.spent.kart} max={g.kart} color="purple" />
       <Meter l="Nakit / KMH" v={week.spent.nakit} max={g.nakit} color="green" />
-      {(fixedCardReserved > 0.01 || cardCarryReduction > 0.01) && (
+      {fixedCardReserved > 0.01 && (
         <p className="goalExplanation">
           Ana kart hedefi {trMoney(baseCardGoal)}
           {fixedCardReserved > 0.01 && <> · sabit kart ödemelerine ayrılan {trMoney(fixedCardReserved)}</>}
-          {cardCarryReduction > 0.01 && <> · geçmiş haftalardan düzeltme {trMoney(cardCarryReduction)}</>}
           {" · "}bu hafta kullanılabilir {trMoney(g.kart)}
         </p>
       )}
@@ -2214,23 +2201,20 @@ function WeekBox({
 function Weekly({
   data,
   week,
-  carry,
   savings,
   save,
 }: {
   data: BudgetData;
   week: any;
-  carry: any;
   savings: number;
   save: Save;
 }) {
   const [editingId, setEditingId] = useState<number | null>(null),
     [editDraft, setEditDraft] = useState<{ tutar: string; aciklama: string }>({ tutar: "", aciklama: "" }),
     [confirmDelete, setConfirmDelete] = useState<any>(null);
-  const goals = adjustedGoals(week, carry),
+  const goals = week.goal,
     baseCardGoal = num(data.haftalik_hedefler.kart),
     fixedCardReserved = Math.max(0, baseCardGoal - week.goal.kart),
-    cardCarryReduction = Math.max(0, week.goal.kart - goals.kart),
     groupedRecords = Object.entries(
       week.records.reduce((groups: Record<string, any[]>, record: any) => {
         (groups[record.tarih] ||= []).push(record);
@@ -2280,11 +2264,10 @@ function Weekly({
             {savings >= 0 ? "Birikimli nakit hedefi farkı" : "Birikimli nakit hedefi aşımı"} <b>{trMoney(Math.abs(savings))}</b>
           </span>
         </div>
-        {(fixedCardReserved > 0.01 || cardCarryReduction > 0.01) && (
+        {fixedCardReserved > 0.01 && (
           <p className="goalExplanation">
             Ana kart hedefi {trMoney(baseCardGoal)}
             {fixedCardReserved > 0.01 && <> · sabit kart ödemelerine ayrılan {trMoney(fixedCardReserved)}</>}
-            {cardCarryReduction > 0.01 && <> · geçmiş haftalardan düzeltme {trMoney(cardCarryReduction)}</>}
             {" · "}bu hafta kullanılabilir {trMoney(goals.kart)}
           </p>
         )}
