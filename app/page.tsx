@@ -2109,6 +2109,9 @@ function WeekBox({
                 <span className="uiIcon" aria-hidden="true">N</span> Nakit
               </button>
             </div>
+            {type === "nakit" && wallet.aktif && (
+              <p className="walletHint">Cüzdanda {trMoney(wallet.bakiye)} var; yetmeyen kısım otomatik KMH’ye geçer.</p>
+            )}
             <label className="mobileExpenseField">
               <span>Tutar</span>
               <input
@@ -2579,9 +2582,6 @@ function Update({
               <h3 id="walletManagerTitle">Cüzdandaki nakit</h3>
               <p>Bankadan çekilmiş fakat henüz harcanmamış para.</p>
             </div>
-            {type === "nakit" && wallet.aktif && (
-              <p className="walletHint">Cüzdanda {trMoney(wallet.bakiye)} var; yetmeyen kısım otomatik KMH’ye geçer.</p>
-            )}
             <strong>{trMoney(wallet.bakiye)}</strong>
           </div>
           {!wallet.aktif ? (
