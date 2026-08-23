@@ -17,6 +17,8 @@ export type BudgetData = AnyMap & {
   kart_hesap_ozeti_gecmisi: AnyMap[];
   kart_hedef_onaylari: AnyMap;
   hareket_gunlugu: AnyMap[];
+  cuzdan_ayarlari: AnyMap;
+  cuzdan_hareketleri: AnyMap[];
 };
 export const START_YEAR = 2026,
   START_MONTH = 8;
@@ -81,6 +83,9 @@ export function normalize(raw: any): BudgetData {
   arr("kart_iadesi_gecmisi");
   arr("kart_kademeli_odemeler");
   arr("hareket_gunlugu");
+  obj("cuzdan_ayarlari");
+  arr("cuzdan_hareketleri");
+  d.cuzdan_ayarlari.aktif ??= false;
   const closeLegacyRefund = (state: AnyMap) => {
     const amount = Math.max(0, n(state.yk_beklenen_iade));
     if (amount > 0) {
@@ -140,6 +145,58 @@ export function activityFromOtherDevice(
     item.kaynak_cihaz_id !== deviceId &&
     !known.has(String(item.id)),
   );
+}
+
+export type WalletAllocation = { cuzdan: number; kmh: number };
+export type WalletState = {
+  aktif: boolean;
+  bakiye: number;
+  allocations: Map<string, WalletAllocation>;
+};
+
+/**
+ * Cüzdan, saklanan tek bir bakiye yerine kimlikli hareketlerden yeniden üretilir.
+ * Bu sayede bir nakit harcaması düzenlendiğinde/silindiğinde veya iki cihazdaki
+ * kayıtlar birleştiğinde cüzdan ve KMH payları deterministik olarak hesaplanır.
+ * Eski nakit kayıtları `cuzdan_takibine_dahil` taşımadığı için etkilenmez.
+ */
+export function walletState(d: BudgetData, untilMs = Number.POSITIVE_INFINITY): WalletState {
+  const aktif = d.cuzdan_ayarlari?.aktif === true;
+  if (!aktif) return { aktif: false, bakiye: 0, allocations: new Map() };
+  const timeline: Array<AnyMap & { kind: "movement" | "expense" }> = [];
+  for (const movement of d.cuzdan_hareketleri || [])
+    timeline.push({ ...movement, kind: "movement" });
+  for (const expense of d.haftalik_harcamalar || [])
+    if (expense.tur === "nakit" && expense.cuzdan_takibine_dahil === true)
+      timeline.push({ ...expense, kind: "expense" });
+  timeline.sort((a, b) => {
+    const at = +new Date(a.olusturma_zamani || a.tarih || 0),
+      bt = +new Date(b.olusturma_zamani || b.tarih || 0);
+    return at - bt || String(a.id).localeCompare(String(b.id));
+  });
+  let bakiye = 0;
+  const allocations = new Map<string, WalletAllocation>();
+  for (const item of timeline) {
+    const created = +new Date(item.olusturma_zamani || item.tarih || 0);
+    if (!Number.isFinite(created) || created > untilMs) continue;
+    if (item.kind === "movement") {
+      if (item.tur === "nakit_cekimi")
+        bakiye += Math.max(0, n(item.tutar));
+      else if (item.tur === "bakiye_duzeltme")
+        bakiye = Math.max(0, n(item.bakiye));
+      continue;
+    }
+    const amount = Math.max(0, n(item.tutar)),
+      fromWallet = Math.min(bakiye, amount),
+      fromKmh = amount - fromWallet;
+    bakiye -= fromWallet;
+    allocations.set(String(item.id), { cuzdan: fromWallet, kmh: fromKmh });
+  }
+  return { aktif: true, bakiye, allocations };
+}
+
+export function shouldRetainExpenseDetails(record: AnyMap) {
+  return record.tur === "nakit" && record.cuzdan_takibine_dahil === true;
 }
 export function activeInMonth(p: AnyMap, y: number, m: number) {
   if (p.aktif === false) return false;
@@ -903,7 +960,8 @@ export function liveFinancial(
     kart_odeme: 0,
     karta_yansiyan: 0,
     otomatik_gelir: 0,
-  };
+  },
+    wallet = walletState(d);
   const scheduled = incomeStatus(d, s, calcDate);
   bank += scheduled.received;
   sums.otomatik_gelir = scheduled.received;
@@ -918,8 +976,22 @@ export function liveFinancial(
       available -= amount;
       sums.kart_harcama += amount;
     } else if (r.tur === "nakit") {
-      bank -= amount;
+      const allocation = wallet.allocations.get(String(r.id));
+      // Eski kayıtların davranışı aynen korunur. Yalnız açıkça yeni cüzdan
+      // takibine alınan kayıtlarda bankadan sadece KMH payı düşülür.
+      bank -= allocation ? allocation.kmh : amount;
       sums.nakit_harcama += amount;
+    }
+  }
+  if (wallet.aktif) {
+    for (const movement of d.cuzdan_hareketleri || []) {
+      if (movement.tur !== "nakit_cekimi") continue;
+      const created = new Date(movement.olusturma_zamani || movement.tarih || 0),
+        movementDate = isoDate(movement.tarih || movement.olusturma_zamani),
+        amount = Math.max(0, n(movement.tutar));
+      if (!movementDate || +created < +start || !appliesToMonth(dateParts(movementDate)))
+        continue;
+      bank -= amount;
     }
   }
   for (const [k, e] of Object.entries(d.gerceklesen_odemeler) as [
