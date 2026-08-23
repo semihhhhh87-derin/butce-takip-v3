@@ -15,6 +15,7 @@ import {
   BudgetData,
   dateToIso,
   effectiveDay,
+  enableWallet,
   exitDates,
   incomeStatus,
   isTurkishPublicHoliday,
@@ -26,6 +27,8 @@ import {
   paymentAmount,
   paymentKey,
   pruneActivityLog,
+  recordWalletCorrection,
+  recordWalletWithdrawal,
   recentActivityLog,
   scheduledIncomeRemaining,
   shouldRetainExpenseDetails,
@@ -34,6 +37,7 @@ import {
   todayUtc,
   weeklySavings,
   weeklyCardSavings,
+  walletState,
   weekRange,
   weeklySummary,
 } from "./lib/budget-engine";
@@ -1946,7 +1950,8 @@ function WeekBox({
   const g = week.goal,
     r = g.kart + g.nakit - week.spent.kart - week.spent.nakit,
     baseCardGoal = num(data.haftalik_hedefler.kart),
-    fixedCardReserved = Math.max(0, baseCardGoal - week.goal.kart);
+    fixedCardReserved = Math.max(0, baseCardGoal - week.goal.kart),
+    wallet = walletState(data);
 
   const wk = dateToIso(week.start),
     advanced = +week.start > +now;
@@ -1994,6 +1999,7 @@ function WeekBox({
       tutar: v,
       aciklama: desc,
       olusturma_zamani: createdAt,
+      ...(type === "nakit" && wallet.aktif ? { cuzdan_takibine_dahil: true } : {}),
     });
     d.hareket_gunlugu.push({
       id: `harcama-${expenseId}`,
@@ -2002,12 +2008,20 @@ function WeekBox({
       kaynak_cihaz_id: deviceId,
       olusturma_zamani: createdAt,
     });
-    await save(
-      d,
-      advanced
-        ? `${trMoney(v)} ${type === "kart" ? "kart" : "nakit"} harcaması yeni takip haftasına eklendi`
-        : `${trMoney(v)} ${type === "kart" ? "kart" : "nakit"} harcaması eklendi`,
-    );
+    let message = advanced
+      ? `${trMoney(v)} ${type === "kart" ? "kart" : "nakit"} harcaması yeni takip haftasına eklendi`
+      : `${trMoney(v)} ${type === "kart" ? "kart" : "nakit"} harcaması eklendi`;
+    if (type === "nakit" && wallet.aktif) {
+      const nextWallet = walletState(d),
+        allocation = nextWallet.allocations.get(String(expenseId));
+      if (allocation && allocation.cuzdan > 0 && allocation.kmh > 0)
+        message = `${trMoney(v)} kaydedildi: ${trMoney(allocation.cuzdan)} cüzdandan, ${trMoney(allocation.kmh)} KMH’den karşılandı`;
+      else if (allocation && allocation.cuzdan > 0)
+        message = `${trMoney(v)} cüzdandan karşılandı; cüzdanda ${trMoney(nextWallet.bakiye)} kaldı`;
+      else if (allocation)
+        message = `${trMoney(v)} KMH’den karşılandı; cüzdan bakiyesi sıfır`;
+    }
+    await save(d, message);
     setAmount("");
     setDesc("");
     setSavingExpense(false);
@@ -2035,6 +2049,9 @@ function WeekBox({
             <span className="uiIcon" aria-hidden="true">N</span> Nakit
           </button>
         </div>
+        {type === "nakit" && wallet.aktif && (
+          <p className="walletHint">Cüzdanda {trMoney(wallet.bakiye)} var; yetmeyen kısım otomatik KMH’ye geçer.</p>
+        )}
         <input
           ref={amountRef}
           type="text"
@@ -2355,10 +2372,46 @@ function Update({
   const [kartHedef, setKartHedef] = useState(num(data.haftalik_hedefler.kart));
   const [nakitHedef, setNakitHedef] = useState(num(data.haftalik_hedefler.nakit));
   const [maasForm, setMaasForm] = useState<any>(null),
+    [walletForm, setWalletForm] = useState<null | { type: "withdraw" | "adjust"; amount: number }>(null),
+    [savingWallet, setSavingWallet] = useState(false),
     [updateErrors, setUpdateErrors] = useState<Record<string, string>>({});
   const milatSource = String(data.butce_plani.butce_baslangic_tarihi || "").slice(0, 10);
   const [milatDraft, setMilatDraft] = useState({ source: milatSource, value: milatSource });
   const milatTarihi = milatDraft.source === milatSource ? milatDraft.value : milatSource;
+  const wallet = walletState(data);
+
+  async function activateWallet() {
+    if (savingWallet || wallet.aktif) return;
+    setSavingWallet(true);
+    const d = normalize(data);
+    enableWallet(d);
+    await save(d, "Cüzdan takibi açıldı; henüz nakit hareketi eklenmedi");
+    setSavingWallet(false);
+  }
+
+  async function saveWalletMovement() {
+    if (!walletForm || savingWallet) return;
+    const amount = num(walletForm.amount);
+    if (amount < 0 || (walletForm.type === "withdraw" && amount <= 0)) {
+      setUpdateErrors({ wallet: walletForm.type === "withdraw"
+        ? "Çekilen nakit sıfırdan büyük olmalıdır."
+        : "Cüzdan bakiyesi negatif olamaz." });
+      return;
+    }
+    setUpdateErrors({});
+    setSavingWallet(true);
+    const d = normalize(data),
+      createdAt = new Date().toISOString(),
+      common = { id: newId(), tarih: dateToIso(now), olusturma_zamani: createdAt };
+    const saved = walletForm.type === "withdraw"
+      ? recordWalletWithdrawal(d, { ...common, tutar: amount })
+      : recordWalletCorrection(d, { ...common, bakiye: amount });
+    if (saved) await save(d, walletForm.type === "withdraw"
+      ? `${trMoney(amount)} cüzdana eklendi ve KMH hesabına yansıtıldı`
+      : `Cüzdan bakiyesi ${trMoney(amount)} olarak düzeltildi`);
+    setWalletForm(null);
+    setSavingWallet(false);
+  }
 
   function sync() {
     if (!Number.isFinite(Number(g.garanti_bakiye))) {
@@ -2520,6 +2573,62 @@ function Update({
         </button>
         {updateErrors.garanti && <small className="fieldError formError">{updateErrors.garanti}</small>}
         {notice && <span className="saveFeedback" role="status">✓ {notice}</span>}
+        <section className="walletManager" aria-labelledby="walletManagerTitle">
+          <div className="walletManagerHeader">
+            <div>
+              <h3 id="walletManagerTitle">Cüzdandaki nakit</h3>
+              <p>Bankadan çekilmiş fakat henüz harcanmamış para.</p>
+            </div>
+            {type === "nakit" && wallet.aktif && (
+              <p className="walletHint">Cüzdanda {trMoney(wallet.bakiye)} var; yetmeyen kısım otomatik KMH’ye geçer.</p>
+            )}
+            <strong>{trMoney(wallet.bakiye)}</strong>
+          </div>
+          {!wallet.aktif ? (
+            <>
+              <p className="helperText">
+                Takibi açmak bakiyeleri değiştirmez. Açtıktan sonra “Nakit çektim” ile çekilen tutarı kaydedebilirsiniz.
+              </p>
+              <button className="secondary" disabled={savingWallet} onClick={activateWallet}>
+                {savingWallet ? "Açılıyor…" : "Cüzdan takibini aç"}
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="walletActions">
+                <button className="secondary" onClick={() => setWalletForm({ type: "withdraw", amount: 0 })}>
+                  Nakit çektim
+                </button>
+                <button className="ghost" onClick={() => setWalletForm({ type: "adjust", amount: wallet.bakiye })}>
+                  Bakiyeyi düzelt
+                </button>
+              </div>
+              {walletForm && (
+                <div className="walletEditor">
+                  <div className="formGrid">
+                    <Field
+                      l={walletForm.type === "withdraw" ? "Çekilen nakit" : "Gerçek cüzdan bakiyesi"}
+                      v={walletForm.amount}
+                      set={(amount) => setWalletForm({ ...walletForm, amount })}
+                    />
+                  </div>
+                  <p className="helperText">
+                    {walletForm.type === "withdraw"
+                      ? "Bu tutar cüzdana eklenir ve hesaplanan KMH’yi aynı tutarda azaltır."
+                      : "Yalnız cüzdan sayımı düzeltilir; KMH bakiyesi değişmez."}
+                  </p>
+                  <div className="actions">
+                    <button className="primary" disabled={savingWallet} onClick={saveWalletMovement}>
+                      {savingWallet ? "Kaydediliyor…" : "Kaydet"}
+                    </button>
+                    <button className="ghost" disabled={savingWallet} onClick={() => setWalletForm(null)}>Vazgeç</button>
+                  </div>
+                </div>
+              )}
+              {updateErrors.wallet && <small className="fieldError formError">{updateErrors.wallet}</small>}
+            </>
+          )}
+        </section>
         <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 14 }}>
           <label htmlFor="milatInput" style={{ fontSize: "0.8rem", color: "var(--muted)", display: "block", marginBottom: 6 }}>
             Nakit birikim milat tarihi

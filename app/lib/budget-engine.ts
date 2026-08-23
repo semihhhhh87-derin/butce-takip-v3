@@ -198,6 +198,34 @@ export function walletState(d: BudgetData, untilMs = Number.POSITIVE_INFINITY): 
 export function shouldRetainExpenseDetails(record: AnyMap) {
   return record.tur === "nakit" && record.cuzdan_takibine_dahil === true;
 }
+
+export function enableWallet(d: BudgetData, createdAt = new Date().toISOString()) {
+  d.cuzdan_ayarlari = {
+    ...d.cuzdan_ayarlari,
+    aktif: true,
+    etkinlestirme_zamani: d.cuzdan_ayarlari?.etkinlestirme_zamani || createdAt,
+  };
+}
+
+export function recordWalletWithdrawal(
+  d: BudgetData,
+  input: { id: string | number; tutar: number; tarih: string; olusturma_zamani: string },
+) {
+  const amount = Math.max(0, n(input.tutar));
+  if (!d.cuzdan_ayarlari?.aktif || amount <= 0) return false;
+  d.cuzdan_hareketleri.push({ ...input, tutar: amount, tur: "nakit_cekimi" });
+  return true;
+}
+
+export function recordWalletCorrection(
+  d: BudgetData,
+  input: { id: string | number; bakiye: number; tarih: string; olusturma_zamani: string },
+) {
+  const balance = Math.max(0, n(input.bakiye));
+  if (!d.cuzdan_ayarlari?.aktif) return false;
+  d.cuzdan_hareketleri.push({ ...input, bakiye: balance, tur: "bakiye_duzeltme" });
+  return true;
+}
 export function activeInMonth(p: AnyMap, y: number, m: number) {
   if (p.aktif === false) return false;
   const t: [number, number] = [y, m];

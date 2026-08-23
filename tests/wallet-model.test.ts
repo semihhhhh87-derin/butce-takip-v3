@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { liveFinancial, normalize, shouldRetainExpenseDetails, walletState, weeklySummary } from "../app/lib/budget-engine";
+import { enableWallet, liveFinancial, normalize, recordWalletCorrection, recordWalletWithdrawal, shouldRetainExpenseDetails, walletState, weeklySummary } from "../app/lib/budget-engine";
 
 const calcDate = new Date("2026-08-24T12:00:00.000Z");
 function fixture(extra: Record<string, unknown> = {}) {
@@ -229,4 +229,16 @@ test("yeni banka fotoğrafı eski ay çekimini tekrar saymadan cüzdanı korur",
   assert.equal(walletState(data).bakiye, 100);
   assert.deepEqual(walletState(data).allocations.get("september"), { cuzdan: 600, kmh: 0 });
   assert.equal(liveFinancial(data, data.guncel_durum, new Date("2026-09-01T12:00:00.000Z")).garanti_bakiye, -49_162.83);
+});
+
+test("arayüz işlemleri takibi parasal etki olmadan açar, çekim ve düzeltmeyi doğrular", () => {
+  const data = fixture({ cuzdan_ayarlari: { aktif: false } });
+  enableWallet(data, "2026-08-24T08:30:00.000Z");
+  assert.equal(walletState(data).aktif, true);
+  assert.equal(walletState(data).bakiye, 0);
+  assert.equal(recordWalletWithdrawal(data, { id: "withdraw", tutar: 4_000, tarih: "2026-08-24", olusturma_zamani: "2026-08-24T09:00:00.000Z" }), true);
+  assert.equal(walletState(data).bakiye, 4_000);
+  assert.equal(recordWalletWithdrawal(data, { id: "invalid", tutar: 0, tarih: "2026-08-24", olusturma_zamani: "2026-08-24T09:30:00.000Z" }), false);
+  assert.equal(recordWalletCorrection(data, { id: "fix", bakiye: 3_850, tarih: "2026-08-24", olusturma_zamani: "2026-08-24T10:00:00.000Z" }), true);
+  assert.equal(walletState(data).bakiye, 3_850);
 });
