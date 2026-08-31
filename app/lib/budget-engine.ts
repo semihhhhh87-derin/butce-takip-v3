@@ -588,60 +588,67 @@ export function monthlySpendingSummary(d: BudgetData, target: Date) {
     fixedCard,
   };
 }
-export function weeklyCardSavings(d: BudgetData, today = todayUtc()) {
-  const activeWeek = activeWeeklySummary(d, today);
-  const milatDate = isoDate(d.butce_plani.butce_baslangic_tarihi);
-  const milatWeekStart = milatDate ? weekRange(milatDate)[0] : null;
-  let net = 0;
-
-  for (const c of Object.values(d.haftalik_kapanislar || {}) as AnyMap[]) {
+function spendingBetween(d: BudgetData, from: Date, through: Date) {
+  const spent = { kart: 0, nakit: 0 },
+    closures = Object.values(d.haftalik_kapanislar || {}) as AnyMap[];
+  for (const r of d.haftalik_harcamalar || []) {
+    const rd = isoDate(r.tarih), assigned = String(r.butce_haftasi || ""),
+      covered = closures.some((c) => {
+        const s = isoDate(c.baslangic), e = isoDate(c.bitis);
+        return !!s && !!e && (assigned === dateIso(s) || (!!rd && +rd >= +s && +rd <= +e));
+      });
+    if (!rd || covered || +rd < +from || +rd > +through) continue;
+    if (r.tur === "kart" || r.tur === "nakit")
+      spent[r.tur] += Math.max(0, n(r.tutar));
+  }
+  for (const c of closures) {
     const s = isoDate(c.baslangic), e = isoDate(c.bitis);
     if (!s || !e) continue;
-    if (milatWeekStart && +s < +milatWeekStart) continue;
-    if (+s >= +activeWeek.start) continue;
-    const { goal } = weeklyGoal(d, s, e);
-    net += goal.kart - n(c.kart);
+    const { effective } = weeklyGoal(d, s, e),
+      overlapStart = new Date(Math.max(+effective, +from)),
+      overlapEnd = new Date(Math.min(+e, +through));
+    if (+overlapStart > +overlapEnd) continue;
+    const weekDays = Math.max(1, Math.round((+e - +effective) / 86400000) + 1),
+      overlapDays = Math.round((+overlapEnd - +overlapStart) / 86400000) + 1,
+      share = overlapDays / weekDays;
+    spent.kart += Math.max(0, n(c.kart)) * share;
+    spent.nakit += Math.max(0, n(c.nakit)) * share;
   }
+  return spent;
+}
 
-  const { goal: activeGoal } = weeklyGoal(d, activeWeek.start, activeWeek.end);
-  const countFrom = milatWeekStart && +activeWeek.start <= +milatWeekStart && milatDate
-    ? milatDate
-    : activeWeek.start;
-  const weekEnd = activeWeek.end;
-  const completedDays = Math.max(0, Math.round((+today - +countFrom) / 86400000) + 1);
-  const totalDays = Math.max(1, Math.round((+weekEnd - +countFrom) / 86400000) + 1);
-  const elapsedRatio = Math.min(1, completedDays / totalDays);
-  net += activeGoal.kart * elapsedRatio - activeWeek.spent.kart;
+/** İçinde bulunulan ayın ilk gününden bugüne biriken yaşam hedefi farkı. */
+export function currentMonthTargetBalance(d: BudgetData, today = todayUtc()) {
+  const [y, m] = dateParts(today), monthStart = new Date(Date.UTC(y, m - 1, 1)),
+    planStart = isoDate(d.butce_plani.butce_baslangic_tarihi),
+    effective = planStart && +planStart > +monthStart ? planStart : monthStart;
+  if (+today < +effective)
+    return { card: 0, cash: 0, elapsedDays: 0, spent: { kart: 0, nakit: 0 }, effective };
+  const elapsedDays = Math.round((+today - +effective) / 86400000) + 1,
+    allocationDays = daysInMonth(y, m) - effective.getUTCDate() + 1,
+    fixedMonthly = cardIncludedPayments(d, y, m, false, effective),
+    grossCardDaily = Math.max(0, n(d.haftalik_hedefler.kart, 6300)) / 7,
+    fixedCardDaily = fixedMonthly / Math.max(1, allocationDays),
+    cardGoal = Math.max(0, grossCardDaily - fixedCardDaily) * elapsedDays,
+    cashGoal = Math.max(0, n(d.haftalik_hedefler.nakit, 2800)) / 7 * elapsedDays,
+    spent = spendingBetween(d, effective, today);
+  return {
+    card: cardGoal - spent.kart,
+    cash: cashGoal - spent.nakit,
+    elapsedDays,
+    spent,
+    effective,
+    cardGoal,
+    cashGoal,
+    fixedMonthly,
+  };
+}
 
-  return net;
+export function weeklyCardSavings(d: BudgetData, today = todayUtc()) {
+  return currentMonthTargetBalance(d, today).card;
 }
 export function weeklySavings(d: BudgetData, today = todayUtc()) {
-  const activeWeek = activeWeeklySummary(d, today);
-  const milatDate = isoDate(d.butce_plani.butce_baslangic_tarihi);
-  const milatWeekStart = milatDate ? weekRange(milatDate)[0] : null;
-  let net = 0;
-
-  for (const c of Object.values(d.haftalik_kapanislar || {}) as AnyMap[]) {
-    const s = isoDate(c.baslangic),
-      e = isoDate(c.bitis);
-    if (!s || !e) continue;
-    if (milatWeekStart && +s < +milatWeekStart) continue;
-    if (+s >= +activeWeek.start) continue;
-    const { goal } = weeklyGoal(d, s, e);
-    net += goal.nakit - n(c.nakit);
-  }
-
-  const { goal: activeGoal } = weeklyGoal(d, activeWeek.start, activeWeek.end);
-  const countFrom = milatWeekStart && +activeWeek.start <= +milatWeekStart && milatDate
-    ? milatDate
-    : activeWeek.start;
-  const weekEnd = activeWeek.end;
-  const completedDays = Math.max(0, Math.round((+today - +countFrom) / 86400000) + 1);
-  const totalDays = Math.max(1, Math.round((+weekEnd - +countFrom) / 86400000) + 1);
-  const elapsedRatio = Math.min(1, completedDays / totalDays);
-  net += activeGoal.nakit * elapsedRatio - activeWeek.spent.nakit;
-
-  return net;
+  return currentMonthTargetBalance(d, today).cash;
 }
 function closedWeekDelta(d: BudgetData, y: number, m: number) {
   const out = { kart: 0, nakit: 0 };
@@ -687,10 +694,10 @@ function cardPaymentInfos(d: BudgetData, y: number, m: number) {
 export function monthlyCardTargetReview(d: BudgetData, now: Date) {
   const y = now.getUTCFullYear(), m = now.getUTCMonth() + 1,
     monthDays = daysInMonth(y, m),
-    periodEnd = new Date(Date.UTC(y, m - 1, 0)),
+    monthStart = new Date(Date.UTC(y, m - 1, 1)),
+    periodEnd = now,
     configuredStart = isoDate(d.butce_plani.butce_baslangic_tarihi),
-    fallbackStart = new Date(Date.UTC(START_YEAR, START_MONTH - 1, 17)),
-    periodStart = configuredStart || fallbackStart,
+    periodStart = configuredStart && +configuredStart > +monthStart ? configuredStart : monthStart,
     closures = Object.values(d.haftalik_kapanislar || {}) as AnyMap[];
   let freeCardTotal = 0;
 

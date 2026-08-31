@@ -49,25 +49,25 @@ function septemberData() {
   });
 }
 
-test("Eylül ay başı kart hedefi gerçek gün oranıyla hesaplanır", () => {
+test("Eylül ay başı kart eğilimine Ağustos kayıtları taşınmaz", () => {
   const result = monthlyCardTargetReview(
     septemberData(),
     new Date("2026-09-01T00:00:00Z"),
   );
 
-  assert.equal(result.elapsedDays, 15);
-  assert.equal(result.freeCardTotal, 13_500);
-  assert.equal(result.freeWeeklyTrend, 6_300);
+  assert.equal(result.elapsedDays, 1);
+  assert.equal(result.freeCardTotal, 0);
+  assert.equal(result.freeWeeklyTrend, null);
   assert.equal(result.fixedMonthly, 8_152);
   assert.equal(Math.round(result.fixedWeekly * 100) / 100, 1_902.13);
   assert.equal(Math.round(result.usableWeeklyLimit * 100) / 100, 5_297.87);
-  assert.equal(Math.round(Number(result.suggestedGrossTarget) * 100) / 100, 8_202.13);
+  assert.equal(result.suggestedGrossTarget, null);
 });
 
 test("kart kaydı yoksa sabit yük gösterilir ama eğilim uydurulmaz", () => {
   const data = septemberData();
   data.haftalik_kapanislar = {};
-  data.haftalik_harcamalar = [{ tarih: "2026-08-25", tur: "nakit", tutar: 500 }];
+  data.haftalik_harcamalar = [{ tarih: "2026-09-01", tur: "nakit", tutar: 500 }];
   const result = monthlyCardTargetReview(data, new Date("2026-09-02T00:00:00Z"));
 
   assert.equal(result.hasTrend, false);

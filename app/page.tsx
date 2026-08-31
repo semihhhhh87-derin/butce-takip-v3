@@ -861,15 +861,15 @@ function Dashboard({ session }: { session: Session }) {
     ),
     week = activeWeeklySummary(data, now),
     month = monthlySpendingSummary(data, now),
-    savings = weeklySavings(data),
-    cardSavings = weeklyCardSavings(data),
+    savings = weeklySavings(data, now),
+    cardSavings = weeklyCardSavings(data, now),
     anchorMonth = String(data.guncel_durum.tarih || "").slice(0, 7),
     currentMonthKey = dateToIso(now).slice(0, 7),
     needsMonthSync = !!anchorMonth && anchorMonth !== currentMonthKey,
     cardTargetReview = monthlyCardTargetReview(data, now),
     cardTargetApproved = !!data.kart_hedef_onaylari?.[currentMonthKey],
     todayKey = dateToIso(now),
-    showCardTargetReview = now.getUTCDate() <= 3 &&
+    showCardTargetReview = (now.getUTCDate() <= 3 || now.getUTCDate() >= new Date(Date.UTC(y, m, 0)).getUTCDate() - 2) &&
       !cardTargetApproved && closedCardReviewDate !== todayKey,
     currentMonthName = new Intl.DateTimeFormat("tr-TR", {
       month: "long",
@@ -1026,11 +1026,11 @@ function Dashboard({ session }: { session: Session }) {
         <div className="heroStats">
           <article className="heroStatPair">
             <div>
-              <small>{savings >= 0 ? "Birikimli nakit hedefi farkı" : "Birikimli nakit hedefi aşımı"}</small>
+              <small>{currentMonthName} nakit hedefi {savings >= 0 ? "farkı" : "aşımı"}</small>
               <strong className={savings >= 0 ? "good" : "bad"}>{trMoney(Math.abs(savings))}</strong>
             </div>
             <div>
-              <small>{cardSavings >= 0 ? "Birikimli kart hedefi farkı" : "Birikimli kart hedefi aşımı"}</small>
+              <small>{currentMonthName} kart hedefi {cardSavings >= 0 ? "farkı" : "aşımı"}</small>
               <strong className={cardSavings >= 0 ? "good" : "bad"}>{trMoney(Math.abs(cardSavings))}</strong>
             </div>
           </article>
