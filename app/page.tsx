@@ -1143,9 +1143,9 @@ function Dashboard({ session }: { session: Session }) {
           if (checkPaid(p, data, dueY, dueM)) return false;
           return isWithinBusinessDays(now, effectiveDay(dueY, dueM, num(p.odeme_gunu)), 3);
         });
-        if (overduePayments.length > 0 && !dismissedAlerts.has("overdue"))
+        if (overduePayments.length > 0)
           alerts.push({ key: "overdue", msg: `${overduePayments.length} ödemeniz gecikmiş: ${overduePayments.map(({ p }) => p.ad).join(", ")}`, type: "danger" });
-        if (upcomingPayments.length > 0 && !dismissedAlerts.has("upcoming")) {
+        if (upcomingPayments.length > 0) {
           const minWorkDays = Math.min(...upcomingPayments.map(({ p, y: dueY, m: dueM }) => businessDaysUntil(now, effectiveDay(dueY, dueM, num(p.odeme_gunu)))));
           const upcomingTotal = upcomingPayments.reduce((sum: number, { p, y: dueY, m: dueM }) => {
             const planned = paymentAmount(data, p, dueY, dueM);
@@ -1171,7 +1171,9 @@ function Dashboard({ session }: { session: Session }) {
             <span>{a.msg}</span>
             <span className="alertActions">
               {a.action && <button className="alertPrimary" onClick={() => setTab("odemeler")}>Ödemelere git</button>}
-              <button onClick={() => dismissAlert(a.key)}>Bugün tekrar gösterme</button>
+              {a.key !== "upcoming" && a.key !== "overdue" && (
+                <button onClick={() => dismissAlert(a.key)}>Bugün tekrar gösterme</button>
+              )}
             </span>
           </div>
         ));
