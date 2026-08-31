@@ -1369,6 +1369,7 @@ function Payments({
                 odeme_gunu: 1,
                 tur: "diger",
                 odeme_kaynagi: "banka",
+                baslangic_ay: `${displayY}-${String(displayM).padStart(2, "0")}`,
                 aktif: true,
               })
             }
