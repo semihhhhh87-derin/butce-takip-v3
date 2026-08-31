@@ -3,6 +3,7 @@ node_modules/
 dist/
 dist-vercel/
 .vercel/
+*.tsbuildinfo
 .env
 .env.*
 !.env.example

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { effectiveDay, isTurkishPublicHoliday } from "../app/lib/budget-engine.ts";
+import { effectiveDay, isTurkishPublicHoliday } from "../app/lib/budget-engine";
 
 test("sabit resmî tatil önceki iş gününe taşınır", () => {
   assert.equal(effectiveDay(2026, 10, 29).toISOString().slice(0, 10), "2026-10-27");

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { currentMonthTargetBalance, normalize } from "../app/lib/budget-engine.ts";
+import { currentMonthTargetBalance, normalize } from "../app/lib/budget-engine";
 
 function data() {
   return normalize({

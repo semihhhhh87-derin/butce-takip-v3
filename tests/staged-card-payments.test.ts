@@ -42,5 +42,8 @@ test("iki kart ödeme planının yalnız kendi kademeli tutarı düşülür", ()
   const month = calculateMonth(data, 2026, 8, {}, new Date("2026-08-10T00:00:00.000Z"));
   assert.equal(month.kart_taban_odeme, 30_000);
   assert.equal(month.kart_odeme, 26_500);
-  assert.equal(month.kalan_sabit_odemeler, 26_500);
+  assert.equal(
+    (month as { kalan_sabit_odemeler?: number }).kalan_sabit_odemeler,
+    26_500,
+  );
 });

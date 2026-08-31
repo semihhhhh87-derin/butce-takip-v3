@@ -616,7 +616,7 @@ function spendingBetween(d: BudgetData, from: Date, through: Date) {
       });
     if (!rd || covered || +rd < +from || +rd > +through) continue;
     if (r.tur === "kart" || r.tur === "nakit")
-      spent[r.tur] += Math.max(0, n(r.tutar));
+      spent[r.tur as "kart" | "nakit"] += Math.max(0, n(r.tutar));
   }
   for (const c of closures) {
     const exact = closureSpendingBetween(d, c, from, through);

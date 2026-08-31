@@ -518,7 +518,7 @@ function Dashboard({ session }: { session: Session }) {
         if (!date) return out;
         out[date] ||= { kart: 0, nakit: 0 };
         if (record.tur === "kart" || record.tur === "nakit")
-          out[date][record.tur] += Math.max(0, num(record.tutar));
+          out[date][record.tur as "kart" | "nakit"] += Math.max(0, num(record.tutar));
         return out;
       }, {});
       if (!withAuto.haftalik_kapanislar[key]) {
@@ -633,7 +633,7 @@ function Dashboard({ session }: { session: Session }) {
       savedVersion = Number(persisted.data.version) || r.data.version + 1;
     }
     const pending = await readPendingBudgetSave(),
-      displayedData = pending?.family === fid ? normalize(pending.next) : finalData;
+      displayedData = pending && pending.family === fid ? normalize(pending.next) : finalData;
     dataRef.current = displayedData;
     versionRef.current = savedVersion;
     (window as any).__bd__ = displayedData;
@@ -866,7 +866,7 @@ function Dashboard({ session }: { session: Session }) {
     current =
       plan.rows.find((x: any) => x.yil === y && x.ay === m) || plan.rows.at(-1),
     cardAdvice = cardReductionAdvice(
-      current,
+      current || {},
       data.guncel_durum.yk_hesap_ozeti,
       data.haftalik_hedefler.kart,
     ),
@@ -965,7 +965,7 @@ function Dashboard({ session }: { session: Session }) {
   function openWeekly() {
     const seenKey = `${ACTIVITY_SEEN_KEY}-${family}`,
       seen = readLocalIdSet(seenKey);
-    for (const item of recentActivityLog(data)) seen.add(String(item.id));
+    for (const item of recentActivityLog(data!)) seen.add(String(item.id));
     writeLocalIdSet(seenKey, seen);
     setUnseenActivityCount(0);
     setActivityNoticeCount(0);
@@ -1247,7 +1247,6 @@ function Dashboard({ session }: { session: Session }) {
         <Weekly
           data={data}
           week={week}
-          savings={savings}
           save={save}
         />
       )}{" "}
@@ -2201,12 +2200,10 @@ function WeekBox({
 function Weekly({
   data,
   week,
-  savings,
   save,
 }: {
   data: BudgetData;
   week: any;
-  savings: number;
   save: Save;
 }) {
   const [editingId, setEditingId] = useState<number | null>(null),
@@ -2260,9 +2257,6 @@ function Weekly({
         <div className="weekSummaryBar">
           <span>Kart <b>{trMoney(week.spent.kart)}</b> / {trMoney(goals.kart)}</span>
           <span>Nakit <b>{trMoney(week.spent.nakit)}</b> / {trMoney(goals.nakit)}</span>
-          <span className={savings >= 0 ? "good" : "bad"}>
-            {savings >= 0 ? "Birikimli nakit hedefi farkı" : "Birikimli nakit hedefi aşımı"} <b>{trMoney(Math.abs(savings))}</b>
-          </span>
         </div>
         {fixedCardReserved > 0.01 && (
           <p className="goalExplanation">
