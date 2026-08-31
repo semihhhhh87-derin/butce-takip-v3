@@ -47,3 +47,19 @@ test("yeni ay önceki ayın farkını sıfırlar", () => {
   assert.equal(Math.round(result.card * 100) / 100, 980.65);
   assert.equal(Math.round(result.cash * 100) / 100, 571.43);
 });
+
+test("aya yayılan hafta kapanınca Eylül gerçek günlük toplamını aynen korur", () => {
+  const d = data();
+  d.haftalik_harcamalar = [];
+  d.haftalik_kapanislar = {
+    "2026-08-31": {
+      baslangic: "2026-08-31", bitis: "2026-09-06", kart: 8_100, nakit: 4_200,
+      gunluk_toplamlar: {
+        "2026-08-31": { kart: 8_000, nakit: 4_000 },
+        "2026-09-01": { kart: 100, nakit: 200 },
+      },
+    },
+  };
+  const result = currentMonthTargetBalance(d, new Date("2026-09-07T00:00:00Z"));
+  assert.deepEqual(result.spent, { kart: 100, nakit: 200 });
+});

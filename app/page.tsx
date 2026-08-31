@@ -513,12 +513,21 @@ function Dashboard({ session }: { session: Session }) {
       const key = dateToIso(start);
       if (+start >= +thisWeekStart) break; // bu hafta veya sonrasına dokunma
       const ws = weeklySummary(withAuto, cursor);
+      const dailyTotals = ws.records.reduce((out: Record<string, { kart: number; nakit: number }>, record: any) => {
+        const date = String(record.tarih || "").slice(0, 10);
+        if (!date) return out;
+        out[date] ||= { kart: 0, nakit: 0 };
+        if (record.tur === "kart" || record.tur === "nakit")
+          out[date][record.tur] += Math.max(0, num(record.tutar));
+        return out;
+      }, {});
       if (!withAuto.haftalik_kapanislar[key]) {
         withAuto.haftalik_kapanislar[key] = {
           baslangic: key,
           bitis: dateToIso(end),
           kart: ws.spent.kart,
           nakit: ws.spent.nakit,
+          gunluk_toplamlar: dailyTotals,
           kapanma_zamani: new Date().toISOString(),
           kapanis_tarihi: key,
           otomatik: true,
@@ -535,11 +544,13 @@ function Dashboard({ session }: { session: Session }) {
         });
         if (
           hasDetails &&
-          (Math.abs(num(closure.kart) - ws.spent.kart) > 0.01 ||
+          (!closure.gunluk_toplamlar ||
+            Math.abs(num(closure.kart) - ws.spent.kart) > 0.01 ||
             Math.abs(num(closure.nakit) - ws.spent.nakit) > 0.01)
         ) {
           closure.kart = ws.spent.kart;
           closure.nakit = ws.spent.nakit;
+          closure.gunluk_toplamlar = dailyTotals;
           closure.duzeltme_zamani = new Date().toISOString();
           autoSaved = true;
         }

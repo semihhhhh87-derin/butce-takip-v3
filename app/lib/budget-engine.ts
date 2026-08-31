@@ -524,6 +524,29 @@ export function weeklyCarryAdjustment(d: BudgetData, target: Date) {
     source: "net-defter",
   };
 }
+function closureSpendingBetween(d: BudgetData, c: AnyMap, from: Date, through: Date) {
+  const daily = c.gunluk_toplamlar;
+  if (daily && typeof daily === "object" && Object.keys(daily).length) {
+    const exact = { kart: 0, nakit: 0 };
+    for (const [date, totals] of Object.entries(daily) as [string, AnyMap][]) {
+      const day = isoDate(date);
+      if (!day || +day < +from || +day > +through) continue;
+      exact.kart += Math.max(0, n(totals?.kart));
+      exact.nakit += Math.max(0, n(totals?.nakit));
+    }
+    return exact;
+  }
+  const s = isoDate(c.baslangic), e = isoDate(c.bitis);
+  if (!s || !e) return { kart: 0, nakit: 0 };
+  const { effective } = weeklyGoal(d, s, e),
+    overlapStart = new Date(Math.max(+effective, +from)),
+    overlapEnd = new Date(Math.min(+e, +through));
+  if (+overlapStart > +overlapEnd) return { kart: 0, nakit: 0 };
+  const weekDays = Math.max(1, Math.round((+e - +effective) / 86400000) + 1),
+    overlapDays = Math.round((+overlapEnd - +overlapStart) / 86400000) + 1,
+    share = overlapDays / weekDays;
+  return { kart: Math.max(0, n(c.kart)) * share, nakit: Math.max(0, n(c.nakit)) * share };
+}
 export function monthlySpendingSummary(d: BudgetData, target: Date) {
   const [y, m] = dateParts(target),
     spent = { kart: 0, nakit: 0 },
@@ -553,15 +576,9 @@ export function monthlySpendingSummary(d: BudgetData, target: Date) {
   for (const c of closures) {
     const s = isoDate(c.baslangic), e = isoDate(c.bitis);
     if (!s || !e) continue;
-    const { effective: weekEffective } = weeklyGoal(d, s, e),
-      overlapStart = new Date(Math.max(+weekEffective, +effective)),
-      overlapEnd = new Date(Math.min(+e, +monthEnd));
-    if (+overlapStart > +overlapEnd) continue;
-    const weekDays = Math.max(1, Math.round((+e - +weekEffective) / 86400000) + 1),
-      overlapDays = Math.round((+overlapEnd - +overlapStart) / 86400000) + 1,
-      share = overlapDays / weekDays;
-    spent.kart += Math.max(0, n(c.kart)) * share;
-    spent.nakit += Math.max(0, n(c.nakit)) * share;
+    const exact = closureSpendingBetween(d, c, effective, monthEnd);
+    spent.kart += exact.kart;
+    spent.nakit += exact.nakit;
   }
   const days = Math.max(0, Math.round((+monthEnd - +effective) / 86400000) + 1),
     ratio = days / daysInMonth(y, m),
@@ -602,17 +619,9 @@ function spendingBetween(d: BudgetData, from: Date, through: Date) {
       spent[r.tur] += Math.max(0, n(r.tutar));
   }
   for (const c of closures) {
-    const s = isoDate(c.baslangic), e = isoDate(c.bitis);
-    if (!s || !e) continue;
-    const { effective } = weeklyGoal(d, s, e),
-      overlapStart = new Date(Math.max(+effective, +from)),
-      overlapEnd = new Date(Math.min(+e, +through));
-    if (+overlapStart > +overlapEnd) continue;
-    const weekDays = Math.max(1, Math.round((+e - +effective) / 86400000) + 1),
-      overlapDays = Math.round((+overlapEnd - +overlapStart) / 86400000) + 1,
-      share = overlapDays / weekDays;
-    spent.kart += Math.max(0, n(c.kart)) * share;
-    spent.nakit += Math.max(0, n(c.nakit)) * share;
+    const exact = closureSpendingBetween(d, c, from, through);
+    spent.kart += exact.kart;
+    spent.nakit += exact.nakit;
   }
   return spent;
 }
