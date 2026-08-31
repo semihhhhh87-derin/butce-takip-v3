@@ -1146,7 +1146,6 @@ function Dashboard({ session }: { session: Session }) {
         if (overduePayments.length > 0)
           alerts.push({ key: "overdue", msg: `${overduePayments.length} ödemeniz gecikmiş: ${overduePayments.map(({ p }) => p.ad).join(", ")}`, type: "danger" });
         if (upcomingPayments.length > 0) {
-          const minWorkDays = Math.min(...upcomingPayments.map(({ p, y: dueY, m: dueM }) => businessDaysUntil(now, effectiveDay(dueY, dueM, num(p.odeme_gunu)))));
           const upcomingTotal = upcomingPayments.reduce((sum: number, { p, y: dueY, m: dueM }) => {
             const planned = paymentAmount(data, p, dueY, dueM);
             const staged = p.kart_borc_odeme ? (data.kart_kademeli_odemeler || [])
@@ -1162,12 +1161,12 @@ function Dashboard({ session }: { session: Session }) {
           alerts.push({
             key: "upcoming",
             msg: `${upcomingPayments.length} yaklaşan ödeme · Toplam ${trMoney(upcomingTotal)}: ${upcomingMsg}`,
-            type: minWorkDays === 0 ? "danger" : minWorkDays === 1 ? "warn" : "info",
+            type: "warn",
             action: true,
           });
         }
         return alerts.map((a) => (
-          <div key={a.key} className={`alertBanner ${a.type}`}>
+          <div key={a.key} className={`alertBanner ${a.type}${a.key === "upcoming" || a.key === "overdue" ? " paymentAlert" : ""}`}>
             <span>{a.msg}</span>
             <span className="alertActions">
               {a.action && <button className="alertPrimary" onClick={() => setTab("odemeler")}>Ödemelere git</button>}

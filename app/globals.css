@@ -1711,6 +1711,18 @@ nav button {
   border-radius: 7px;
   font-weight: 800;
 }
+.alertBanner.paymentAlert.warn button.alertPrimary {
+  background: #9a6300;
+  border-color: #9a6300;
+  color: #fff;
+  opacity: 1;
+}
+.alertBanner.paymentAlert.danger button.alertPrimary {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+  opacity: 1;
+}
 .cardTargetReviewCopy {
   display: grid;
   gap: 3px;
