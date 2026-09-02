@@ -1691,6 +1691,11 @@ nav button {
   color: #7a4f00;
   border-bottom: 1px solid #ffe0a0;
 }
+.alertBanner.urgent {
+  background: #fff0d6;
+  color: #8a3f00;
+  border-bottom: 1px solid #f4bd6a;
+}
 .alertBanner.info {
   background: #eef5ff;
   color: #24538a;
@@ -1714,6 +1719,12 @@ nav button {
 .alertBanner.paymentAlert.warn button.alertPrimary {
   background: #9a6300;
   border-color: #9a6300;
+  color: #fff;
+  opacity: 1;
+}
+.alertBanner.paymentAlert.urgent button.alertPrimary {
+  background: #c65300;
+  border-color: #c65300;
   color: #fff;
   opacity: 1;
 }

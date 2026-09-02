@@ -1129,7 +1129,7 @@ function Dashboard({ session }: { session: Session }) {
         </div>
       )}
       {(() => {
-        const alerts: { key: string; msg: string; type: "info" | "warn" | "danger"; action?: boolean }[] = [];
+        const alerts: { key: string; msg: string; type: "info" | "warn" | "urgent" | "danger"; action?: boolean }[] = [];
         const usableWeekGoal = week.goal;
         const weekOver = week.spent.kart + week.spent.nakit > (usableWeekGoal.kart + usableWeekGoal.nakit);
         if (weekOver && !dismissedAlerts.has("week-over"))
@@ -1157,6 +1157,8 @@ function Dashboard({ session }: { session: Session }) {
         if (overduePayments.length > 0)
           alerts.push({ key: "overdue", msg: `${overduePayments.length} ödemeniz gecikmiş: ${overduePayments.map(({ p }) => p.ad).join(", ")}`, type: "danger" });
         if (upcomingPayments.length > 0) {
+          const minWorkDays = Math.min(...upcomingPayments.map(({ p, y: dueY, m: dueM }) =>
+            businessDaysUntil(now, effectiveDay(dueY, dueM, num(p.odeme_gunu)))));
           const upcomingTotal = upcomingPayments.reduce((sum: number, { p, y: dueY, m: dueM }) => {
             const planned = paymentAmount(data, p, dueY, dueM);
             const staged = p.kart_borc_odeme ? (data.kart_kademeli_odemeler || [])
@@ -1172,11 +1174,11 @@ function Dashboard({ session }: { session: Session }) {
           alerts.push({
             key: "upcoming",
             msg: `${upcomingPayments.length} yaklaşan ödeme · Toplam ${trMoney(upcomingTotal)}: ${upcomingMsg}`,
-            type: "warn",
+            type: minWorkDays <= 0 ? "danger" : minWorkDays === 1 ? "urgent" : "warn",
             action: true,
           });
         }
-        return alerts.map((a) => (
+        return alerts.map((a) => (a.key === "upcoming" || a.key === "overdue") && tab === "odemeler" ? null : (
           <div key={a.key} className={`alertBanner ${a.type}${a.key === "upcoming" || a.key === "overdue" ? " paymentAlert" : ""}`}>
             <span>{a.msg}</span>
             <span className="alertActions">
@@ -1199,12 +1201,12 @@ function Dashboard({ session }: { session: Session }) {
           <div className="layout">
           <Payments
             data={data}
-            rows={payments}
+            rows={payments.slice(0, 5)}
             y={y}
             m={m}
             toggle={toggle}
             save={save}
-            footerAction={payments.length > 8 ? { label: `Tümünü gör (${payments.length})`, onClick: () => setTab("odemeler") } : undefined}
+            footerAction={payments.length > 5 ? { label: `Tümünü gör (${payments.length})`, onClick: () => setTab("odemeler") } : undefined}
           />
           <aside>
             <section className="panel snapshot">
@@ -1397,8 +1399,6 @@ function Payments({
         </div>
       )}
       {edit && (() => {
-        const navDate = new Date(Date.UTC(displayY, displayM - 1, 15));
-        const mSummary = monthlySpendingSummary(data, navDate);
         const paymentTotals = activeRows.reduce((totals: { paid: number; pending: number }, p: any) => {
           const planned = paymentAmount(data, p, displayY, displayM),
             paymentKeyForRow = paymentKey(displayY, displayM, p.id),
@@ -1416,24 +1416,8 @@ function Payments({
           }
           return totals;
         }, { paid: 0, pending: 0 });
-        const kartKalan = mSummary.goal.kart - mSummary.spent.kart;
-        const nakitKalan = mSummary.goal.nakit - mSummary.spent.nakit;
         return (
           <div className="selectedMonthSummary">
-            <span>
-              Kart&nbsp;
-              <b>{trMoney(mSummary.goal.kart)}</b>
-              <small> limit · </small>
-              <b className={kartKalan < 0 ? "bad" : "good"}>{trMoney(kartKalan)}</b>
-              <small> kalan</small>
-            </span>
-            <span>
-              Nakit / KMH&nbsp;
-              <b>{trMoney(mSummary.goal.nakit)}</b>
-              <small> limit · </small>
-              <b className={nakitKalan < 0 ? "bad" : "good"}>{trMoney(nakitKalan)}</b>
-              <small> kalan</small>
-            </span>
             <span>Ödenen <b className="good">{trMoney(paymentTotals.paid)}</b></span>
             <span>Bekleyen <b className={paymentTotals.pending > 0 ? "bad" : "good"}>{trMoney(paymentTotals.pending)}</b></span>
           </div>

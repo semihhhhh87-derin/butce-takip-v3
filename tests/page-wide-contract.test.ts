@@ -97,3 +97,13 @@ test("tarih ve para alanları uygun HTML giriş türlerini kullanır", () => {
   assert.match(fields, /type="date"/);
   assert.match(fields, /parseTrMoney\(input\.value\)/);
 });
+
+test("Özet ödeme listesini beş satırla sınırlar ve Ödemeler yalnız ödeme toplamlarını gösterir", () => {
+  const dashboard = section("function Dashboard(", "function Payments(");
+  const payments = section("function Payments(", "function PaymentForm(");
+  assert.match(dashboard, /rows=\{payments\.slice\(0, 5\)\}/);
+  assert.match(dashboard, /payments\.length > 5/);
+  assert.doesNotMatch(payments, /mSummary\.goal/);
+  assert.match(payments, /Ödenen/);
+  assert.match(payments, /Bekleyen/);
+});
