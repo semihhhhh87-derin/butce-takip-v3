@@ -1213,7 +1213,6 @@ function Dashboard({ session }: { session: Session }) {
               <h2>Bu ayın temkinli tahmini</h2>
               <Row l="Ay sonu KMH" v={trMoney(current?.ek_avans)} />
               <Row l="KMH tahmini faizi" v={trMoney(current?.faiz)} />
-              <Row l="Kart tahmini faizi" v={trMoney(current?.kart_faiz)} />
               <Row
                 l="Ay sonu kart borcu"
                 v={trMoney(current?.kart_kapanis_borcu)}
