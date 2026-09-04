@@ -312,6 +312,15 @@ export function salary(d: BudgetData, y: number, m: number) {
     if (cmp([y, m], parseMonth(r.baslangic_ay)) >= 0) out = n(r.tutar);
   return out;
 }
+export function installmentTotalAmount(p: AnyMap, monthlyAmount = n(p.tutar)) {
+  const storedTotal = n(p.taksit_toplam_tutar);
+  if (storedTotal > 0) return storedTotal;
+  return Math.max(0, monthlyAmount) * Math.max(1, Math.trunc(n(p.taksit_sayisi, 1)));
+}
+export function installmentMonthlyAmount(total: number, installmentCount: number) {
+  const count = Math.trunc(installmentCount);
+  return count > 0 ? Math.max(0, total) / count : 0;
+}
 export function salaryParts(d: BudgetData, s: AnyMap, y: number, m: number) {
   const base = Array.isArray(s.gelir_parcalari) ? s.gelir_parcalari : [];
   let scheduled: AnyMap[] | null = null;

@@ -17,6 +17,8 @@ import {
   effectiveDay,
   enableWallet,
   exitDates,
+  installmentMonthlyAmount,
+  installmentTotalAmount,
   isTurkishPublicHoliday,
   liveFinancial,
   monthlySpendingSummary,
@@ -1595,7 +1597,11 @@ function PaymentForm({
   done: (value: any) => void;
 }) {
   // Raw string states for decimal inputs
-  const [rawBuAy, setRawBuAy] = useState(String(p.bu_ay_tutar ?? p.tutar ?? 0));
+  const storedMonthlyAmount = num(p.bu_ay_tutar ?? p.tutar),
+    displayedAmount = p.tur === "taksit"
+      ? installmentTotalAmount(p, storedMonthlyAmount)
+      : storedMonthlyAmount;
+  const [rawBuAy, setRawBuAy] = useState(String(displayedAmount));
   const [rawTutar, setRawTutar] = useState(String(p.tutar ?? 0));
   const [rawGun, setRawGun] = useState(String(p.odeme_gunu ?? ""));
   const [rawTaksit, setRawTaksit] = useState(String(p.taksit_sayisi ?? "")),
@@ -1661,12 +1667,12 @@ function PaymentForm({
   function submit() {
     const nextErrors: Record<string, string> = {},
       name = String(p.ad || "").trim(),
-      currentAmount = parseTrMoney(rawBuAy),
+      enteredAmount = parseTrMoney(rawBuAy),
       normalAmount = parseTrMoney(rawTutar),
       day = Number(rawGun),
       installmentCount = rawTaksit.trim() === "" ? 0 : Number(rawTaksit);
     if (!name) nextErrors.ad = "Ödeme adı zorunludur.";
-    if (currentAmount === null || currentAmount < 0)
+    if (enteredAmount === null || enteredAmount < 0)
       nextErrors.buAy = "Tutar sıfır veya daha büyük olmalıdır.";
     if (p.tur !== "taksit" && !carriesForwardPaymentAmount(p) && (normalAmount === null || normalAmount < 0))
       nextErrors.tutar = "Sonraki ayların tutarı sıfır veya daha büyük olmalıdır.";
@@ -1674,10 +1680,15 @@ function PaymentForm({
       nextErrors.gun = "Ödeme günü 1 ile 31 arasında olmalıdır.";
     if (!Number.isInteger(installmentCount) || installmentCount < 0)
       nextErrors.taksit = "Taksit sayısı pozitif bir tam sayı olmalıdır.";
+    if (p.tur === "taksit" && installmentCount <= 0)
+      nextErrors.taksit = "Taksitli alışveriş için taksit sayısı sıfırdan büyük olmalıdır.";
     if (installmentCount > 0 && !p.baslangic_ay)
       nextErrors.baslangic = "Taksitli ödeme için başlangıç ayı seçilmelidir.";
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
+    const currentAmount = p.tur === "taksit"
+      ? installmentMonthlyAmount(enteredAmount || 0, installmentCount)
+      : enteredAmount;
     const clean = {
       ...p,
       ad: name,
@@ -1685,7 +1696,10 @@ function PaymentForm({
       odeme_gunu: day,
       taksit_sayisi: installmentCount,
     };
-    if (p.tur === "taksit" || carriesForwardPaymentAmount(p)) clean.tutar = currentAmount;
+    if (p.tur === "taksit") {
+      clean.taksit_toplam_tutar = enteredAmount;
+      clean.tutar = currentAmount;
+    } else if (carriesForwardPaymentAmount(p)) clean.tutar = currentAmount;
     else clean.tutar = normalAmount;
     if (installmentCount > 0 && clean.baslangic_ay) {
       const [y, m] = clean.baslangic_ay.split("-").map(Number),
@@ -1729,7 +1743,7 @@ function PaymentForm({
         </label>
         <label>
           {p.tur === "taksit"
-            ? "Taksit tutarı"
+            ? "Toplam alışveriş tutarı"
             : carriesForwardPaymentAmount(p)
               ? "Bu aydan itibaren tutar"
               : "Bu ayın tutarı"}
@@ -1743,8 +1757,10 @@ function PaymentForm({
               if (parsed === null) return;
               const v = parsed;
               setRawBuAy(String(v));
-              set(p.tur === "taksit" || carriesForwardPaymentAmount(p)
-                ? { ...p, tutar: v, bu_ay_tutar: v }
+              set(p.tur === "taksit"
+                ? { ...p, taksit_toplam_tutar: v }
+                : carriesForwardPaymentAmount(p)
+                  ? { ...p, tutar: v, bu_ay_tutar: v }
                 : { ...p, bu_ay_tutar: v });
             }}
             onFocus={(e) => e.target.select()}
@@ -1752,6 +1768,13 @@ function PaymentForm({
             aria-describedby={errors.buAy ? "payment-current-amount-error" : undefined}
           />
           {errors.buAy && <small className="fieldError" id="payment-current-amount-error">{errors.buAy}</small>}
+          {p.tur === "taksit" && (
+            <small className="helperText">
+              Aylık taksit: {Number(rawTaksit) > 0
+                ? trMoney(installmentMonthlyAmount(parseTrMoney(rawBuAy) || 0, Number(rawTaksit)))
+                : "taksit sayısını girin"}
+            </small>
+          )}
         </label>
         {p.tur !== "taksit" && !carriesForwardPaymentAmount(p) && (
           <label>
