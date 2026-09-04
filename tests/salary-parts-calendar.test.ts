@@ -57,13 +57,3 @@ test("yeni ay fotoğrafında yalnız henüz yatmamış dönem parçaları kalır
   assert.equal(scheduledIncomeRemaining(d, d.guncel_durum, new Date("2026-10-05T00:00:00Z")), 72_500);
   assert.equal(scheduledIncomeRemaining(d, d.guncel_durum, new Date("2027-02-04T00:00:00Z")), 120_600);
 });
-
-test("aynı gün maaşı bakiyeye dahil değilse bir kez otomatik eklenir", () => {
-  const d = data();
-  d.guncel_durum.ayni_gun_maas_bakiyeye_dahil = false;
-  assert.deepEqual(incomeStatus(d, d.guncel_durum, new Date("2026-09-04T00:00:00Z")), {
-    received: 28_000,
-    remaining: 44_500,
-  });
-  assert.equal(scheduledIncomeRemaining(d, d.guncel_durum, new Date("2026-10-05T00:00:00Z"), false), 111_530.48);
-});

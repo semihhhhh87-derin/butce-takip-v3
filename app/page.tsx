@@ -2365,9 +2365,6 @@ function Update({
   const [kartHedef, setKartHedef] = useState(num(data.haftalik_hedefler.kart));
   const [nakitHedef, setNakitHedef] = useState(num(data.haftalik_hedefler.nakit));
   const [maasForm, setMaasForm] = useState<any>(null),
-    [sameDaySalaryIncluded, setSameDaySalaryIncluded] = useState(
-      data.guncel_durum.ayni_gun_maas_bakiyeye_dahil !== false,
-    ),
     [walletForm, setWalletForm] = useState<null | { type: "withdraw" | "adjust"; amount: number }>(null),
     [savingWallet, setSavingWallet] = useState(false),
     [updateErrors, setUpdateErrors] = useState<Record<string, string>>({});
@@ -2375,8 +2372,6 @@ function Update({
   const [milatDraft, setMilatDraft] = useState({ source: milatSource, value: milatSource });
   const milatTarihi = milatDraft.source === milatSource ? milatDraft.value : milatSource;
   const wallet = walletState(data);
-  const todaySalaryParts = salaryParts(data, g, now.getUTCFullYear(), now.getUTCMonth() + 1)
-    .filter((part: any) => +effectiveDay(now.getUTCFullYear(), now.getUTCMonth() + 1, num(part.gun, 1)) === +startOfUtcDay(now));
 
   function salaryFormFor(row?: any) {
     const month = String(row?.baslangic_ay || dateToIso(now).slice(0, 7));
@@ -2433,14 +2428,13 @@ function Update({
     setUpdateErrors({});
     const d = normalize(data);
     const oldDate = String(d.guncel_durum.tarih || "").slice(0, 7);
-    const remainingIncome = scheduledIncomeRemaining(d, g, now, sameDaySalaryIncluded);
+    const remainingIncome = scheduledIncomeRemaining(d, g, now);
     if (oldDate && oldDate !== dateToIso(now).slice(0, 7))
       d.aylik_ankorlar[oldDate] = structuredClone(d.guncel_durum);
     d.guncel_durum = {
       ...d.guncel_durum,
       ...g,
       ay_kalan_gelir: remainingIncome,
-      ayni_gun_maas_bakiyeye_dahil: sameDaySalaryIncluded,
       tarih: dateToIso(now),
       takip_baslangic_zamani: new Date().toISOString(),
     };
@@ -2590,16 +2584,6 @@ function Update({
             set={(v) => setG({ ...g, garanti_bakiye: v })}
           />
         </div>
-        {todaySalaryParts.length > 0 && (
-          <label className="checkline" style={{ marginTop: 12 }}>
-            <input
-              type="checkbox"
-              checked={sameDaySalaryIncluded}
-              onChange={(event) => setSameDaySalaryIncluded(event.target.checked)}
-            />
-            Bugünkü {trMoney(todaySalaryParts.reduce((sum: number, part: any) => sum + num(part.tutar), 0))} maaş bu bakiyeye dahil
-          </label>
-        )}
         <button className="primary" style={{ marginTop: 12 }} onClick={sync}>
           Güncelle
         </button>
