@@ -349,8 +349,12 @@ export function incomeStatus(d: BudgetData, s: AnyMap, calcDate: Date) {
     return { received: 0, remaining: 0 };
   const [y, m] = dateParts(photo),
     cap = Math.max(0, n(s.ay_kalan_gelir, s.agustos_kalan_gelir)),
+    sameDayIncluded = s.ayni_gun_maas_bakiyeye_dahil !== false,
     parts = salaryParts(d, s, y, m).filter(
-      (x: AnyMap) => +effectiveDay(y, m, n(x.gun, 1)) > +photo,
+      (x: AnyMap) => {
+        const due = +effectiveDay(y, m, n(x.gun, 1));
+        return due > +photo || (!sameDayIncluded && due === +photo);
+      },
     ),
     received = Math.min(
       cap,
@@ -364,12 +368,16 @@ export function scheduledIncomeRemaining(
   d: BudgetData,
   s: AnyMap,
   calcDate: Date,
+  sameDayIncluded = true,
 ) {
   const [y, m] = dateParts(calcDate),
     parts = salaryParts(d, s, y, m);
   if (!parts.length) return salary(d, y, m);
   return parts
-    .filter((x: AnyMap) => +effectiveDay(y, m, n(x.gun, 1)) > +calcDate)
+    .filter((x: AnyMap) => {
+      const due = +effectiveDay(y, m, n(x.gun, 1));
+      return due > +calcDate || (!sameDayIncluded && due === +calcDate);
+    })
     .reduce(
       (sum: number, x: AnyMap) => sum + Math.max(0, n(x.tutar)),
       0,

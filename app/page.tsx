@@ -17,7 +17,6 @@ import {
   effectiveDay,
   enableWallet,
   exitDates,
-  incomeStatus,
   isTurkishPublicHoliday,
   liveFinancial,
   monthlySpendingSummary,
@@ -31,6 +30,7 @@ import {
   recordWalletWithdrawal,
   recentActivityLog,
   scheduledIncomeRemaining,
+  salaryParts,
   shouldRetainExpenseDetails,
   trMoney,
   trMonth,
@@ -2365,6 +2365,9 @@ function Update({
   const [kartHedef, setKartHedef] = useState(num(data.haftalik_hedefler.kart));
   const [nakitHedef, setNakitHedef] = useState(num(data.haftalik_hedefler.nakit));
   const [maasForm, setMaasForm] = useState<any>(null),
+    [sameDaySalaryIncluded, setSameDaySalaryIncluded] = useState(
+      data.guncel_durum.ayni_gun_maas_bakiyeye_dahil !== false,
+    ),
     [walletForm, setWalletForm] = useState<null | { type: "withdraw" | "adjust"; amount: number }>(null),
     [savingWallet, setSavingWallet] = useState(false),
     [updateErrors, setUpdateErrors] = useState<Record<string, string>>({});
@@ -2372,6 +2375,22 @@ function Update({
   const [milatDraft, setMilatDraft] = useState({ source: milatSource, value: milatSource });
   const milatTarihi = milatDraft.source === milatSource ? milatDraft.value : milatSource;
   const wallet = walletState(data);
+  const todaySalaryParts = salaryParts(data, g, now.getUTCFullYear(), now.getUTCMonth() + 1)
+    .filter((part: any) => +effectiveDay(now.getUTCFullYear(), now.getUTCMonth() + 1, num(part.gun, 1)) === +startOfUtcDay(now));
+
+  function salaryFormFor(row?: any) {
+    const month = String(row?.baslangic_ay || dateToIso(now).slice(0, 7));
+    const [year, monthNo] = month.split("-").map(Number);
+    const parts = Array.isArray(row?.gelir_parcalari)
+      ? row.gelir_parcalari
+      : salaryParts(data, g, year, monthNo);
+    return {
+      ...row,
+      baslangic_ay: row?.baslangic_ay || month,
+      baslangic_ay_orig: row?.baslangic_ay || "",
+      gelir_parcalari: parts.map((part: any) => ({ ...part })),
+    };
+  }
 
   async function activateWallet() {
     if (savingWallet || wallet.aktif) return;
@@ -2414,16 +2433,14 @@ function Update({
     setUpdateErrors({});
     const d = normalize(data);
     const oldDate = String(d.guncel_durum.tarih || "").slice(0, 7);
-    const sameMonth = oldDate === dateToIso(now).slice(0, 7);
-    const remainingIncome = sameMonth
-      ? incomeStatus(d, { ...d.guncel_durum, ...g }, now).remaining
-      : scheduledIncomeRemaining(d, g, now);
+    const remainingIncome = scheduledIncomeRemaining(d, g, now, sameDaySalaryIncluded);
     if (oldDate && oldDate !== dateToIso(now).slice(0, 7))
       d.aylik_ankorlar[oldDate] = structuredClone(d.guncel_durum);
     d.guncel_durum = {
       ...d.guncel_durum,
       ...g,
       ay_kalan_gelir: remainingIncome,
+      ayni_gun_maas_bakiyeye_dahil: sameDaySalaryIncluded,
       tarih: dateToIso(now),
       takip_baslangic_zamani: new Date().toISOString(),
     };
@@ -2524,8 +2541,15 @@ function Update({
   }
 
   function saveMaas(form: any) {
-    if (!/^\d{4}-\d{2}$/.test(String(form.baslangic_ay || "")) || num(form.tutar) <= 0) {
-      setUpdateErrors({ maas: "Başlangıç ayını seçin ve sıfırdan büyük bir gelir girin." });
+    const parts = (form.gelir_parcalari || []).map((part: any) => ({
+      kaynak: String(part.kaynak || "").trim(),
+      gun: Math.trunc(num(part.gun)),
+      tutar: num(part.tutar),
+    }));
+    const total = parts.reduce((sum: number, part: any) => sum + part.tutar, 0);
+    if (!/^\d{4}-\d{2}$/.test(String(form.baslangic_ay || "")) || !parts.length ||
+        parts.some((part: any) => !part.kaynak || part.gun < 1 || part.gun > 31 || part.tutar < 0) || total <= 0) {
+      setUpdateErrors({ maas: "Başlangıç ayını, her maaşın adını, 1-31 arasındaki gününü ve geçerli tutarını girin." });
       return;
     }
     setUpdateErrors({});
@@ -2534,8 +2558,9 @@ function Update({
     const i = takvim.findIndex((q: any) => q.baslangic_ay === form.baslangic_ay_orig);
     const clean = {
       ...(i >= 0 ? takvim[i] : {}),
-      tutar: num(form.tutar),
+      tutar: total,
       baslangic_ay: form.baslangic_ay,
+      gelir_parcalari: parts,
     };
     if (i >= 0) takvim[i] = clean;
     else takvim.push(clean);
@@ -2565,6 +2590,16 @@ function Update({
             set={(v) => setG({ ...g, garanti_bakiye: v })}
           />
         </div>
+        {todaySalaryParts.length > 0 && (
+          <label className="checkline" style={{ marginTop: 12 }}>
+            <input
+              type="checkbox"
+              checked={sameDaySalaryIncluded}
+              onChange={(event) => setSameDaySalaryIncluded(event.target.checked)}
+            />
+            Bugünkü {trMoney(todaySalaryParts.reduce((sum: number, part: any) => sum + num(part.tutar), 0))} maaş bu bakiyeye dahil
+          </label>
+        )}
         <button className="primary" style={{ marginTop: 12 }} onClick={sync}>
           Güncelle
         </button>
@@ -2743,21 +2778,47 @@ function Update({
             <div key={x.baslangic_ay} className="gelirRow">
               <span><b>{x.baslangic_ay}</b> · <span>{trMoney(x.tutar)}</span></span>
               <span className="payActions">
-                <button className="ghost" onClick={() => setMaasForm({ ...x, baslangic_ay_orig: x.baslangic_ay })}>Düzenle</button>
+                <button className="ghost" onClick={() => setMaasForm(salaryFormFor(x))}>Düzenle</button>
                 <button className="danger" onClick={() => delMaas(x.baslangic_ay)}>Sil</button>
               </span>
             </div>
           ))}
           {!(data.ayarlar.maas_takvimi || []).length && <div className="empty">Takvim boş — 100.000 TL varsayılan kullanılıyor.</div>}
         </div>
-        <button className="primary" style={{ marginTop: 8 }} onClick={() => setMaasForm({ baslangic_ay: "", baslangic_ay_orig: "", tutar: 0 })}>
+        <button className="primary" style={{ marginTop: 8 }} onClick={() => setMaasForm(salaryFormFor())}>
           + Ay ekle
         </button>
         {maasForm && (
           <div className="editor" style={{ marginTop: 12 }}>
             <div className="formGrid">
               <label>Başlangıç ayı<input type="month" value={maasForm.baslangic_ay} onChange={(e) => setMaasForm({ ...maasForm, baslangic_ay: e.target.value })} /></label>
-              <Field l="Aylık toplam gelir" v={maasForm.tutar} set={(v) => setMaasForm({ ...maasForm, tutar: v })} />
+            </div>
+            <div className="salaryPartsEditor">
+              {(maasForm.gelir_parcalari || []).map((part: any, index: number) => (
+                <div className="formGrid" key={`${index}-${part.kaynak}`}>
+                  <label>Maaş adı<input type="text" value={part.kaynak || ""} onChange={(event) => {
+                    const next = [...maasForm.gelir_parcalari]; next[index] = { ...part, kaynak: event.target.value };
+                    setMaasForm({ ...maasForm, gelir_parcalari: next });
+                  }} /></label>
+                  <label>Ayın günü<input type="number" min="1" max="31" value={part.gun} onChange={(event) => {
+                    const next = [...maasForm.gelir_parcalari]; next[index] = { ...part, gun: Number(event.target.value) };
+                    setMaasForm({ ...maasForm, gelir_parcalari: next });
+                  }} /></label>
+                  <Field l="Tutar" v={part.tutar} set={(value) => {
+                    const next = [...maasForm.gelir_parcalari]; next[index] = { ...part, tutar: value };
+                    setMaasForm({ ...maasForm, gelir_parcalari: next });
+                  }} />
+                  <button className="danger" type="button" onClick={() => setMaasForm({
+                    ...maasForm,
+                    gelir_parcalari: maasForm.gelir_parcalari.filter((_: any, partIndex: number) => partIndex !== index),
+                  })}>Parçayı sil</button>
+                </div>
+              ))}
+              <button className="ghost" type="button" onClick={() => setMaasForm({
+                ...maasForm,
+                gelir_parcalari: [...(maasForm.gelir_parcalari || []), { kaynak: "", gun: 1, tutar: 0 }],
+              })}>+ Maaş parçası ekle</button>
+              <p className="helperText">Aylık toplam: <b>{trMoney((maasForm.gelir_parcalari || []).reduce((sum: number, part: any) => sum + num(part.tutar), 0))}</b></p>
             </div>
             <div className="actions">
               <button className="primary" onClick={() => saveMaas(maasForm)}>Kaydet</button>

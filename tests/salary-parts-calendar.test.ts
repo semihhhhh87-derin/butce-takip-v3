@@ -42,8 +42,8 @@ function data() {
 
 test("aylık maaş parçaları kayıtlı dönem dağılımını aynen kullanır", () => {
   const d = data();
-  assert.deepEqual(salaryParts(d, d.guncel_durum, 2026, 10).map((x: any) => x.tutar), [39_030.48, 48_333.33, 24_166.67]);
-  assert.deepEqual(salaryParts(d, d.guncel_durum, 2027, 2).map((x: any) => x.tutar), [33_600, 58_000, 29_000]);
+  assert.deepEqual(salaryParts(d, d.guncel_durum, 2026, 10).map((x) => x.tutar), [39_030.48, 48_333.33, 24_166.67]);
+  assert.deepEqual(salaryParts(d, d.guncel_durum, 2027, 2).map((x) => x.tutar), [33_600, 58_000, 29_000]);
 });
 
 test("4 Eylül fotoğrafından sonra kalan iki Eylül maaşı gününde eklenir", () => {
@@ -56,4 +56,14 @@ test("yeni ay fotoğrafında yalnız henüz yatmamış dönem parçaları kalır
   const d = data();
   assert.equal(scheduledIncomeRemaining(d, d.guncel_durum, new Date("2026-10-05T00:00:00Z")), 72_500);
   assert.equal(scheduledIncomeRemaining(d, d.guncel_durum, new Date("2027-02-04T00:00:00Z")), 120_600);
+});
+
+test("aynı gün maaşı bakiyeye dahil değilse bir kez otomatik eklenir", () => {
+  const d = data();
+  d.guncel_durum.ayni_gun_maas_bakiyeye_dahil = false;
+  assert.deepEqual(incomeStatus(d, d.guncel_durum, new Date("2026-09-04T00:00:00Z")), {
+    received: 28_000,
+    remaining: 44_500,
+  });
+  assert.equal(scheduledIncomeRemaining(d, d.guncel_durum, new Date("2026-10-05T00:00:00Z"), false), 111_530.48);
 });
