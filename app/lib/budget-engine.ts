@@ -312,6 +312,19 @@ export function salary(d: BudgetData, y: number, m: number) {
     if (cmp([y, m], parseMonth(r.baslangic_ay)) >= 0) out = n(r.tutar);
   return out;
 }
+export function salaryParts(d: BudgetData, s: AnyMap, y: number, m: number) {
+  const base = Array.isArray(s.gelir_parcalari) ? s.gelir_parcalari : [];
+  let scheduled: AnyMap[] | null = null;
+  for (const r of [...(d.ayarlar.maas_takvimi || [])].sort((a, b) =>
+    String(a.baslangic_ay).localeCompare(String(b.baslangic_ay)),
+  ))
+    if (cmp([y, m], parseMonth(r.baslangic_ay)) >= 0 && Array.isArray(r.gelir_parcalari))
+      scheduled = r.gelir_parcalari;
+  if (scheduled) return scheduled.map((x) => ({ ...x, tutar: Math.max(0, n(x.tutar)) }));
+  const rawTotal = base.reduce((sum: number, x: AnyMap) => sum + Math.max(0, n(x.tutar)), 0),
+    scale = rawTotal > 0 ? salary(d, y, m) / rawTotal : 0;
+  return base.map((x: AnyMap) => ({ ...x, tutar: Math.max(0, n(x.tutar)) * scale }));
+}
 export function extraIncome(d: BudgetData, y: number, m: number) {
   return (d.ek_gelirler || [])
     .filter(
@@ -336,7 +349,7 @@ export function incomeStatus(d: BudgetData, s: AnyMap, calcDate: Date) {
     return { received: 0, remaining: 0 };
   const [y, m] = dateParts(photo),
     cap = Math.max(0, n(s.ay_kalan_gelir, s.agustos_kalan_gelir)),
-    parts = (s.gelir_parcalari || []).filter(
+    parts = salaryParts(d, s, y, m).filter(
       (x: AnyMap) => +effectiveDay(y, m, n(x.gun, 1)) > +photo,
     ),
     received = Math.min(
@@ -353,17 +366,12 @@ export function scheduledIncomeRemaining(
   calcDate: Date,
 ) {
   const [y, m] = dateParts(calcDate),
-    parts = s.gelir_parcalari || [],
-    rawTotal = parts.reduce(
-      (sum: number, x: AnyMap) => sum + Math.max(0, n(x.tutar)),
-      0,
-    ),
-    scale = rawTotal > 0 ? salary(d, y, m) / rawTotal : 0;
+    parts = salaryParts(d, s, y, m);
   if (!parts.length) return salary(d, y, m);
   return parts
     .filter((x: AnyMap) => +effectiveDay(y, m, n(x.gun, 1)) > +calcDate)
     .reduce(
-      (sum: number, x: AnyMap) => sum + Math.max(0, n(x.tutar)) * scale,
+      (sum: number, x: AnyMap) => sum + Math.max(0, n(x.tutar)),
       0,
     );
 }

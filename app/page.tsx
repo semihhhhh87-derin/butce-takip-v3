@@ -2532,7 +2532,11 @@ function Update({
     const d = normalize(data);
     const takvim: any[] = [...(d.ayarlar.maas_takvimi || [])];
     const i = takvim.findIndex((q: any) => q.baslangic_ay === form.baslangic_ay_orig);
-    const clean = { tutar: num(form.tutar), baslangic_ay: form.baslangic_ay };
+    const clean = {
+      ...(i >= 0 ? takvim[i] : {}),
+      tutar: num(form.tutar),
+      baslangic_ay: form.baslangic_ay,
+    };
     if (i >= 0) takvim[i] = clean;
     else takvim.push(clean);
     takvim.sort((a, b) => String(a.baslangic_ay).localeCompare(String(b.baslangic_ay)));
